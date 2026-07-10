@@ -13,6 +13,7 @@ The modern-browser pilot captures top-level Microsoft Edge navigation through a 
 - [Wazuh agent log collection](wazuh-agent/README.md)
 - [Wazuh server receipt and pilot alert](wazuh-server/README.md)
 - [Original implementation cleanup](wazuh-server/cleanup-original-implementation.md)
+- [Phase 4 classifier source and configuration](wazuh-server/phase4/)
 
 ## Contributors
 - [@Spades0](https://github.com/Spades0) co-author.

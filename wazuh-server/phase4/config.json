@@ -1,0 +1,8 @@
+{
+  "endpoint": "https://checkurl.phishtank.com/checkurl/",
+  "api_key": "",
+  "user_agent": "phishtank/wazuh-edge-phishing-pilot",
+  "timeout_seconds": 8,
+  "positive_cache_seconds": 21600,
+  "negative_cache_seconds": 900
+}

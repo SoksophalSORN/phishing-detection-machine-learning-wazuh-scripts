@@ -109,3 +109,32 @@ Start with the read-only audit:
 ```bash
 sudo ./wazuh-server/audit-original-installation.sh
 ```
+
+## Proceed to Phase 4
+
+After a real event passes `verify-phase3.sh`, install the structured PhishTank classifier:
+
+```bash
+sudo bash ./wazuh-server/install-phase4.sh -v
+```
+
+An API key is optional but strongly recommended because PhishTank applies a much lower request limit without one. Copy and edit the provided configuration first if you have a key:
+
+```bash
+cp wazuh-server/phase4/config.json /tmp/edge-phishing-classifier.json
+nano /tmp/edge-phishing-classifier.json
+sudo bash ./wazuh-server/install-phase4.sh -v \
+  --config /tmp/edge-phishing-classifier.json
+```
+
+Open a fresh URL in Edge, copy its navigation `event_id`, and verify the classification result:
+
+```bash
+sudo bash ./wazuh-server/verify-phase4.sh \
+  --source-event-id "PASTE_EVENT_ID" \
+  --wait 60
+```
+
+Phase 4 currently treats PhishTank as the authoritative classification source. Successful negative lookups temporarily produce level-3 pilot alerts, confirmed phishing produces rule `100111` at level 12, and API/integration failures produce rule `100112` at level 5.
+
+The bundled model is an old 15-feature scikit-learn 1.0.2 `SVR`. It has no `predict_proba()` contract, so its output is not a phishing percentage. The legacy ML fallback remains disabled until its environment compatibility, feature extraction safety, threshold, and calibration are validated separately.

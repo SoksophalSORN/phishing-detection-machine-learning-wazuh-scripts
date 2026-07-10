@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+"""Wazuh custom integration entry point."""
+
+from __future__ import annotations
+
+import json
+import os
+import socket
+import sys
+import time
+from pathlib import Path
+
+from edge_phishing_classifier import (
+    ClassificationError,
+    ResultCache,
+    classify_navigation,
+    error_result,
+    load_settings,
+    validate_navigation_alert,
+)
+
+
+def wazuh_home() -> Path:
+    configured = os.environ.get("WAZUH_HOME")
+    if configured:
+        return Path(configured)
+    return Path(__file__).resolve().parent.parent
+
+
+def append_diagnostic(home: Path, message: str) -> None:
+    timestamp = time.strftime("%Y/%m/%d %H:%M:%S")
+    try:
+        with (home / "logs" / "integrations.log").open("a", encoding="utf-8") as handle:
+            handle.write(f"{timestamp} custom-edge-phishing-classifier: {message}\n")
+    except OSError:
+        pass
+
+
+def send_event(home: Path, event: dict, agent: dict | None) -> None:
+    encoded = json.dumps(event, separators=(",", ":"), ensure_ascii=True)
+    if not agent or str(agent.get("id", "000")) == "000":
+        message = f"1:edge-phishing-classifier:{encoded}"
+    else:
+        agent_id = str(agent.get("id", ""))
+        agent_name = str(agent.get("name", ""))
+        agent_ip = str(agent.get("ip", "any"))
+        message = f"1:[{agent_id}] ({agent_name}) {agent_ip}->edge-phishing-classifier:{encoded}"
+
+    queue = home / "queue" / "sockets" / "queue"
+    with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as client:
+        client.connect(str(queue))
+        client.send(message.encode("utf-8"))
+
+
+def main(argv: list[str]) -> int:
+    home = wazuh_home()
+    if len(argv) < 2:
+        append_diagnostic(home, "missing alert-file argument")
+        return 2
+
+    alert_path = Path(argv[1])
+    navigation = None
+    agent = None
+    try:
+        with alert_path.open("r", encoding="utf-8") as handle:
+            alert = json.load(handle)
+        if not isinstance(alert, dict):
+            raise ClassificationError("Wazuh alert root is not an object")
+        agent = alert.get("agent") if isinstance(alert.get("agent"), dict) else None
+        navigation = validate_navigation_alert(alert)
+        settings = load_settings(home / "etc" / "edge-phishing-classifier.json")
+        cache = ResultCache(home / "var" / "edge-phishing-classifier" / "cache.sqlite3")
+        try:
+            event = classify_navigation(navigation, settings, cache)
+        finally:
+            cache.close()
+    except Exception as exc:  # Integration failures must become observable Wazuh events.
+        event = error_result(navigation, exc)
+        append_diagnostic(home, f"classification error: {type(exc).__name__}: {exc}")
+
+    try:
+        send_event(home, event, agent)
+    except OSError as exc:
+        append_diagnostic(home, f"queue send failed: {exc}")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))
