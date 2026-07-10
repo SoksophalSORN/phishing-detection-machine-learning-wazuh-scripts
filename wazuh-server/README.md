@@ -25,6 +25,18 @@ chmod +x wazuh-server/*.sh
 sudo ./wazuh-server/install-phase3.sh
 ```
 
+For full diagnostics, including the sample event and verbose `wazuh-logtest` output:
+
+```bash
+sudo ./wazuh-server/install-phase3.sh -v
+```
+
+Display help without installing anything:
+
+```bash
+bash ./wazuh-server/install-phase3.sh -h
+```
+
 The installer:
 
 - Rejects rule ID `100100` if another custom file already uses it.
