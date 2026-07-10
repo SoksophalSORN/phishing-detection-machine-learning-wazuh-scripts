@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Wazuh Browser Navigation Pilot",
+  "version": "0.1.0",
+  "description": "Captures top-level Microsoft Edge navigation for a controlled Wazuh pilot.",
+  "minimum_chrome_version": "109",
+  "permissions": [
+    "alarms",
+    "nativeMessaging",
+    "storage",
+    "webNavigation"
+  ],
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  }
+}

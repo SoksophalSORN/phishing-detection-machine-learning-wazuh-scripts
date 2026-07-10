@@ -1,0 +1,8 @@
+{
+  "name": "wazuh-edge-navigation-pilot",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  }
+}

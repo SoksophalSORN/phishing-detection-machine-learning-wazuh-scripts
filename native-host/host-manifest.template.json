@@ -1,0 +1,9 @@
+{
+  "name": "com.phishing_detection.navigation",
+  "description": "Native host for the Wazuh Edge navigation pilot",
+  "path": "HOST_EXECUTABLE_PATH",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://EXTENSION_ID/"
+  ]
+}
