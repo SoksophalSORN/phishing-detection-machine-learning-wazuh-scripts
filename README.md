@@ -2,6 +2,15 @@
 
 ## About this project
 
+## Microsoft Edge navigation pilot
+
+The modern-browser pilot captures top-level Microsoft Edge navigation through a sideloaded Manifest V3 extension and a local native-messaging host. Start with:
+
+- [Edge extension–Wazuh integration plan](docs/extension-wazuh-integration-plan.md)
+- [Edge extension implementation plan](docs/edge-extension-implementation-plan.md)
+- [Pilot extension installation and testing](edge-extension/README.md)
+- [Windows native-host installation](native-host/README.md)
+
 ## Contributors
 - [@Spades0](https://github.com/Spades0) co-author.
 - [@xrisbarney](https://github.com/xrisbarney) co-author.
@@ -156,4 +165,3 @@ systemctl restart wazuh-manager
 ---
 
 With this in place, all of the heavy lifting—URL extraction, blacklist lookup, feature-extraction, ML-prediction, and alert injection—runs on the **Wazuh Manager**, while the **agent** merely forwards Sysmon logs.
-
