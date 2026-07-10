@@ -11,6 +11,8 @@ The modern-browser pilot captures top-level Microsoft Edge navigation through a 
 - [Pilot extension installation and testing](edge-extension/README.md)
 - [Windows native-host installation](native-host/README.md)
 - [Wazuh agent log collection](wazuh-agent/README.md)
+- [Wazuh server receipt and pilot alert](wazuh-server/README.md)
+- [Original implementation cleanup](wazuh-server/cleanup-original-implementation.md)
 
 ## Contributors
 - [@Spades0](https://github.com/Spades0) co-author.
@@ -31,8 +33,11 @@ The modern-browser pilot captures top-level Microsoft Edge navigation through a 
 
 
 
-## Set up
-Below is a step-by-step implementation guide for integrating the phishing-detection ML scripts into your Wazuh deployment. This focuses on where to place files, what permissions they need, and which components run on the manager vs. the agent.
+## Legacy setup (superseded)
+
+The following Sysmon/Chrome-command-line setup documents the original forked implementation. It is retained for reference but should not be installed alongside the modern Edge pilot. Existing deployments should follow the [original implementation cleanup](wazuh-server/cleanup-original-implementation.md), then continue with the Phase 3 and Phase 4 plans.
+
+Below is the original step-by-step implementation guide for integrating the phishing-detection ML scripts into a Wazuh deployment.
 
 ---
 
