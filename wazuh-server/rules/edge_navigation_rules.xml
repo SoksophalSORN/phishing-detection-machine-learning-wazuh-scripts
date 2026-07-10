@@ -10,7 +10,7 @@
     <field name="event_type">^browser_navigation$</field>
     <field name="source">^edge_extension$</field>
     <field name="browser">^edge$</field>
-    <field name="url" type="pcre2">^https?://</field>
+    <url type="pcre2">^https?://</url>
     <description>Edge browser navigation observed: $(url) [event_id=$(event_id)]</description>
     <group>browser_navigation,phishing_detection,pilot_transport,</group>
   </rule>
