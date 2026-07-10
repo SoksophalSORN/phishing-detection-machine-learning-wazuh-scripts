@@ -1,0 +1,7 @@
+<!-- BEGIN PHISHING DETECTION EDGE NAVIGATION -->
+<localfile>
+  <location>C:\ProgramData\PhishingDetection\browser-navigation.json</location>
+  <log_format>json</log_format>
+  <only-future-events>no</only-future-events>
+</localfile>
+<!-- END PHISHING DETECTION EDGE NAVIGATION -->
