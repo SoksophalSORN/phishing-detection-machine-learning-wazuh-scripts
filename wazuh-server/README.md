@@ -46,6 +46,8 @@ The installer:
 - Uses `wazuh-logtest -U 100100:3:json` against a representative event.
 - Restarts `wazuh-manager` and rolls back if validation or restart fails.
 
+Rule `100100` is a narrowly filtered child of built-in rule `86600`. Wazuh's built-in JSON rules route records containing `timestamp` and `event_type` through that tree; the child additionally requires this pilot's schema, source, browser, and URL fields.
+
 Wazuh recommends IDs `100000` through `120000` for custom rules and recommends placing larger custom rule sets under `/var/ossec/etc/rules/`.
 
 ## Verify a Real Edge Event
