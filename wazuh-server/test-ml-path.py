@@ -52,16 +52,27 @@ def expected_rule(home: Path, status: str) -> tuple[int, int]:
 
 
 def use_wazuh_python(home: Path) -> None:
-    embedded = home / "framework" / "python" / "bin" / "python3"
-    if os.environ.get(RUNTIME_MARKER) == "1" or not embedded.is_file():
+    if os.environ.get(RUNTIME_MARKER) == "1":
         return
-    environment = os.environ.copy()
-    environment[RUNTIME_MARKER] = "1"
-    os.execve(
-        str(embedded),
-        [str(embedded), str(Path(__file__).resolve()), *sys.argv[1:]],
-        environment,
-    )
+    candidates = [
+        home / "var" / "edge-phishing-classifier" / "venv" / "bin" / "python3",
+        home / "framework" / "python" / "bin" / "python3",
+    ]
+    for candidate in candidates:
+        if not candidate.is_file() or Path(sys.executable).resolve() == candidate.resolve():
+            continue
+        compatible = subprocess.run(
+            [str(candidate), "-c", "import _posixshmem, joblib, sklearn, numpy"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+        )
+        if compatible.returncode == 0:
+            environment = os.environ.copy()
+            environment[RUNTIME_MARKER] = "1"
+            os.execve(
+                str(candidate),
+                [str(candidate), str(Path(__file__).resolve()), *sys.argv[1:]],
+                environment,
+            )
 
 
 def main() -> int:

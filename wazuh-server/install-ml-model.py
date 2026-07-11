@@ -89,16 +89,27 @@ def atomic_json_write(path: Path, value: dict, uid: int, gid: int, mode: int) ->
 
 
 def use_wazuh_python(home: Path) -> None:
-    embedded = home / "framework" / "python" / "bin" / "python3"
-    if os.environ.get(RUNTIME_MARKER) == "1" or not embedded.is_file():
+    if os.environ.get(RUNTIME_MARKER) == "1":
         return
-    environment = os.environ.copy()
-    environment[RUNTIME_MARKER] = "1"
-    os.execve(
-        str(embedded),
-        [str(embedded), str(Path(__file__).resolve()), *sys.argv[1:]],
-        environment,
-    )
+    candidates = [
+        home / "var" / "edge-phishing-classifier" / "venv" / "bin" / "python3",
+        home / "framework" / "python" / "bin" / "python3",
+    ]
+    for candidate in candidates:
+        if not candidate.is_file() or Path(sys.executable).resolve() == candidate.resolve():
+            continue
+        compatible = subprocess.run(
+            [str(candidate), "-c", "import _posixshmem, joblib, sklearn, numpy"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+        )
+        if compatible.returncode == 0:
+            environment = os.environ.copy()
+            environment[RUNTIME_MARKER] = "1"
+            os.execve(
+                str(candidate),
+                [str(candidate), str(Path(__file__).resolve()), *sys.argv[1:]],
+                environment,
+            )
 
 
 def main() -> int:
@@ -146,8 +157,9 @@ def main() -> int:
             validation = ml_module.score_url(args.test_url, str(model_source), args.threshold)
     except Exception as exc:
         raise SystemExit(
-            "Model validation failed. Ensure this Python runtime has the same joblib/scikit-learn "
-            f"versions used for training. Details: {type(exc).__name__}: {exc}"
+            "Model validation failed. Run install-ml-runtime.sh or ensure this Python runtime has "
+            "joblib/scikit-learn versions compatible with the original model. "
+            f"Details: {type(exc).__name__}: {exc}"
         ) from exc
 
     wazuh_gid = grp.getgrnam("wazuh").gr_gid

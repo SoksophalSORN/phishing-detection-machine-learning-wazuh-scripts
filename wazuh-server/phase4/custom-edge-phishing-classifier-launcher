@@ -3,12 +3,16 @@ set -eu
 
 INTEGRATIONS_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
 WAZUH_HOME=$(CDPATH='' cd -- "$INTEGRATIONS_DIR/.." && pwd -P)
+ML_PYTHON="$WAZUH_HOME/var/edge-phishing-classifier/venv/bin/python3"
 WAZUH_PYTHON="$WAZUH_HOME/framework/python/bin/python3"
 PYTHON_SCRIPT="$INTEGRATIONS_DIR/custom-edge-phishing-classifier.py"
 
-if [ ! -x "$WAZUH_PYTHON" ]; then
-  echo "Wazuh embedded Python was not found: $WAZUH_PYTHON" >&2
-  exit 1
+if [ -x "$ML_PYTHON" ]; then
+  exec "$ML_PYTHON" "$PYTHON_SCRIPT" "$@"
+fi
+if [ -x "$WAZUH_PYTHON" ]; then
+  exec "$WAZUH_PYTHON" "$PYTHON_SCRIPT" "$@"
 fi
 
-exec "$WAZUH_PYTHON" "$PYTHON_SCRIPT" "$@"
+echo "No integration Python runtime was found under $WAZUH_HOME" >&2
+exit 1

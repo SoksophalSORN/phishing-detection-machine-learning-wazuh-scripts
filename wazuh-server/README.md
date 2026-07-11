@@ -242,17 +242,27 @@ the modern Edge event pipeline without retraining. The compatibility adapter:
 
 The original model was serialized by scikit-learn 1.0.2. The Python runtime
 used by the Wazuh integration must have compatible NumPy, joblib and
-scikit-learn packages. The installed integration launcher and ML administration
-scripts use Wazuh's embedded interpreter at
-`/var/ossec/framework/python/bin/python3`, rather than whichever interpreter
-`sudo python3` resolves to. Guarded network feature collection additionally
-needs the `python-whois` module in that same environment.
-
-Confirm the embedded environment directly:
+scikit-learn packages. Some Wazuh embedded Python builds omit `_posixshmem`,
+which prevents joblib from importing even when it was installed successfully.
+Use the dedicated ML runtime installer to build a virtual environment from the
+full Ubuntu Python instead:
 
 ```bash
-sudo /var/ossec/framework/python/bin/python3 -c \
-  'import sys, joblib, sklearn, numpy; print(sys.executable, sklearn.__version__)'
+sudo bash ./wazuh-server/install-ml-runtime.sh -v
+```
+
+The runtime is installed at
+`/var/ossec/var/edge-phishing-classifier/venv`. The integration launcher and ML
+administration scripts prefer this environment automatically, falling back to
+Wazuh's embedded Python only when the dedicated runtime is absent and usable.
+The runtime includes `python-whois` for guarded network feature collection.
+
+For an offline deployment, prepare a wheel directory containing compatible
+NumPy, joblib, scikit-learn, python-whois, and their dependencies, then run:
+
+```bash
+sudo bash ./wazuh-server/install-ml-runtime.sh \
+  --wheelhouse /path/to/wheels -v
 ```
 
 First rerun Phase 4 after copying the updated repository so the legacy adapter
