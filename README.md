@@ -8,6 +8,7 @@ The modern-browser pilot captures top-level Microsoft Edge navigation through a 
 
 - [Edge extension–Wazuh integration plan](docs/extension-wazuh-integration-plan.md)
 - [Edge extension implementation plan](docs/edge-extension-implementation-plan.md)
+- [Google Web Risk–Wazuh implementation plan](docs/google-web-risk-integration-plan.md)
 - [Pilot extension installation and testing](edge-extension/README.md)
 - [Windows native-host installation](native-host/README.md)
 - [Wazuh agent log collection](wazuh-agent/README.md)

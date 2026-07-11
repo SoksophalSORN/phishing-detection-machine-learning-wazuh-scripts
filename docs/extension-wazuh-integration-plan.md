@@ -72,14 +72,22 @@ The initial implementation phases are complete for the pilot:
 A previously successful live PhishTank result and the synthetic classification
 tests establish the integration contract. Subsequent Cloudflare challenges or
 registration availability are external service-operability issues and do not
-invalidate the completed Wazuh integration. Production hardening should replace
-the live service dependency with supported authenticated access or a local
-reputation-feed provider when available.
+invalidate the completed Wazuh integration. Production hardening may retain
+PhishTank when supported access is available or select another supported
+reputation solution.
 
 New Wazuh servers should use `wazuh-server/install-wazuh-server.sh`. It installs
 the final rule policy, classifier, and trusted ML artifacts in one workflow,
 runs offline ML and Wazuh rule verification, and restores a complete
 pre-installation snapshot if any stage fails.
+
+The per-URL Google Web Risk Lookup API is planned as another supported solution
+beside PhishTank, not as its removal from the project. Only one reputation
+provider may be active on a Wazuh manager. PhishTank integration and
+PhishTank-specific rules must be disabled and Wazuh validated before Web Risk
+configuration is installed. The Web Risk implementation will not download a
+local threat database. See the
+[Google Web Risk–Wazuh integration plan](google-web-risk-integration-plan.md).
 
 ### Phase 1: Capture Edge Navigation Locally
 

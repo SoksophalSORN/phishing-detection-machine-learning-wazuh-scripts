@@ -75,6 +75,12 @@ be reachable during installation. A later API outage or Cloudflare challenge
 is reported by the configured classifier-error rule and is operational state,
 not an installation rollback condition.
 
+Google Web Risk is planned as an alternative reputation solution, not a
+simultaneous second lookup. Before selecting Web Risk, the server installer must
+disable and validate removal of the active PhishTank integration and
+PhishTank-specific rules. Exactly one reputation provider may be active. See
+the [Google Web Risk integration plan](../docs/google-web-risk-integration-plan.md).
+
 This script installs only the Ubuntu Wazuh-manager side. The Edge extension,
 Windows native host, and Windows Wazuh-agent `localfile` configuration must
 already be deployed using their respective instructions.
