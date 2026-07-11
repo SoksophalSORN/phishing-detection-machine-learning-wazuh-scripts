@@ -145,6 +145,7 @@ rollback() {
     [[ -e "$backup_dir/$name" ]] && cp -a -- "$backup_dir/$name" "$path"
   done
   cp -a -- "$backup_dir/ossec.conf" "$OSSEC_CONFIG"
+  systemctl restart wazuh-manager || true
 }
 
 transaction_active=1
@@ -246,6 +247,14 @@ if ! "$ANALYSISD" -t; then
   exit 1
 fi
 
+echo "[5/6] Restarting wazuh-manager with the validated configuration..."
+if ! systemctl restart wazuh-manager || ! systemctl is-active --quiet wazuh-manager; then
+  transaction_active=0
+  rollback
+  echo "Manager restart failed; previous state restored." >&2
+  exit 1
+fi
+
 sample='{"integration":"edge-phishing-classifier","schema_version":1,"classification":{"status":"malicious","malicious":true,"source":"phishtank","url":"https://example.test/phish","url_host":"example.test","source_event_id":"phase4-test"}}'
 phishtank_expectation='100111:10:json'
 if [[ "$unified_policy" -eq 1 ]]; then
@@ -260,21 +269,13 @@ PY
 fi
 options=(-U "$phishtank_expectation")
 [[ "$verbose" -eq 1 ]] && options=(-v "${options[@]}") || options=(-q "${options[@]}")
-echo "[5/6] Testing a confirmed-phishing result..."
+echo "[6/6] Testing a confirmed-phishing result through the analysisd session manager..."
 if ! printf '%s\n' "$sample" | "$LOGTEST" "${options[@]}"; then
   [[ "$verbose" -eq 0 ]] && printf '%s\n' "$sample" | "$LOGTEST" -v || true
   transaction_active=0
   rollback
-  echo "Phase 4 result did not match $phishtank_expectation; previous state restored." >&2
-  exit 1
-fi
-
-echo "[6/6] Restarting wazuh-manager..."
-if ! systemctl restart wazuh-manager || ! systemctl is-active --quiet wazuh-manager; then
-  transaction_active=0
-  rollback
-  systemctl restart wazuh-manager || true
-  echo "Manager restart failed; previous state restored." >&2
+  echo "wazuh-logtest could not verify $phishtank_expectation; previous state restored." >&2
+  echo "If the output says it cannot connect with wazuh-analysisd, inspect the manager service and the <rule_test> section in ossec.conf." >&2
   exit 1
 fi
 

@@ -329,14 +329,14 @@ def install(policy: Policy, xml: str, home: Path, verbose: bool) -> None:
         if not ossec_path.exists():
             print("WARNING: ossec.conf was not found; the classifier trigger was not updated.", file=sys.stderr)
         subprocess.run([str(home / "bin" / "wazuh-analysisd"), "-t"], check=True)
+        subprocess.run(["systemctl", "restart", "wazuh-manager"], check=True)
+        subprocess.run(["systemctl", "is-active", "--quiet", "wazuh-manager"], check=True)
         for sample, expected in samples:
             command = [
                 str(home / "bin" / "wazuh-logtest"),
                 "-v" if verbose else "-q", "-U", expected,
             ]
             subprocess.run(command, input=sample + "\n", text=True, check=True)
-        subprocess.run(["systemctl", "restart", "wazuh-manager"], check=True)
-        subprocess.run(["systemctl", "is-active", "--quiet", "wazuh-manager"], check=True)
     except Exception:
         for path in managed:
             if path != ossec_path and path.exists():

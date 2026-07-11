@@ -208,8 +208,10 @@ sudo python3 ./wazuh-server/configure-rules.py --install -v \
 
 Installation writes a unified rule file and a JSON policy manifest, backs up
 the managed Phase 3/4 rules and configuration, updates both the classifier's
-source rule and the `<integration>` trigger, runs three rule tests, then
-restarts the manager. A failed validation or restart restores the backup.
+source rule and the `<integration>` trigger, validates the configuration,
+restarts the manager, and then runs three rule tests against the refreshed
+analysisd session manager. A failed validation, restart, or rule test restores
+the backup and restarts the restored configuration.
 
 ## Safely Test a Confirmed-Phishing Alert
 
