@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import ipaddress
+import errno
 import multiprocessing
 import re
 import socket
+import sys
+import types
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -31,6 +34,28 @@ LEGACY_FEATURE_NAMES = [
     "https_domain", "tiny_url", "prefix_suffix", "dns_record", "domain_age",
     "domain_end", "iframe", "mouse_over", "right_click", "web_forwards",
 ]
+
+
+def install_posixshmem_import_shim() -> bool:
+    """Allow serial joblib inference on Wazuh Python builds without POSIX shm.
+
+    The adapter never uses joblib parallelism or multiprocessing.shared_memory.
+    Any accidental shared-memory operation fails explicitly instead of silently
+    leaking a resource.
+    """
+    try:
+        import _posixshmem  # type: ignore  # noqa: F401
+        return False
+    except ModuleNotFoundError:
+        module = types.ModuleType("_posixshmem")
+
+        def unsupported(*_args, **_kwargs):
+            raise OSError(errno.ENOSYS, "POSIX shared memory is unavailable in this Wazuh Python")
+
+        module.shm_open = unsupported
+        module.shm_unlink = unsupported
+        sys.modules["_posixshmem"] = module
+        return True
 
 
 def lexical_features(raw_url: str) -> list[float]:
@@ -180,6 +205,7 @@ def score_legacy_url(
     network_features: bool = True, timeout_seconds: float = 5.0,
     maximum_response_bytes: int = 1024 * 1024, maximum_redirects: int = 4,
 ) -> dict[str, Any]:
+    posixshmem_shim = install_posixshmem_import_shim()
     try:
         import joblib  # type: ignore
     except ImportError as exc:
@@ -205,4 +231,5 @@ def score_legacy_url(
         "calibrated": False,
         "compatibility_mode": True,
         "legacy_network_features": network_features,
+        "posixshmem_compatibility_shim": posixshmem_shim,
     }

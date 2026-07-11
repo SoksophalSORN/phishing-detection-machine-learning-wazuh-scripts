@@ -18,6 +18,14 @@ from types import ModuleType
 
 
 RUNTIME_MARKER = "EDGE_ML_WAZUH_PYTHON"
+RUNTIME_PROBE = (
+    "import sys,types;"
+    "m=types.ModuleType('_posixshmem');"
+    "m.shm_unlink=lambda *a,**k:None;"
+    "m.shm_open=lambda *a,**k:None;"
+    "sys.modules.setdefault('_posixshmem',m);"
+    "import joblib,sklearn,numpy"
+)
 
 
 def arguments() -> argparse.Namespace:
@@ -99,7 +107,7 @@ def use_wazuh_python(home: Path) -> None:
         if not candidate.is_file() or Path(sys.executable).resolve() == candidate.resolve():
             continue
         compatible = subprocess.run(
-            [str(candidate), "-c", "import _posixshmem, joblib, sklearn, numpy"],
+            [str(candidate), "-c", RUNTIME_PROBE],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
         )
         if compatible.returncode == 0:

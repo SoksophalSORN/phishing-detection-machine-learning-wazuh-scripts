@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import ipaddress
+import errno
 import math
 import re
+import sys
+import types
 import urllib.parse
 from collections import Counter
 from pathlib import Path
@@ -25,6 +28,20 @@ SHORTENERS = {
     "bit.ly", "buff.ly", "cutt.ly", "is.gd", "lnkd.in", "ow.ly", "rebrand.ly",
     "shorturl.at", "t.co", "tiny.cc", "tinyurl.com", "v.gd",
 }
+
+
+def _install_posixshmem_import_shim() -> None:
+    try:
+        import _posixshmem  # type: ignore  # noqa: F401
+    except ModuleNotFoundError:
+        module = types.ModuleType("_posixshmem")
+
+        def unsupported(*_args, **_kwargs):
+            raise OSError(errno.ENOSYS, "POSIX shared memory is unavailable in this Wazuh Python")
+
+        module.shm_open = unsupported
+        module.shm_unlink = unsupported
+        sys.modules["_posixshmem"] = module
 
 
 def _entropy(value: str) -> float:
@@ -66,6 +83,7 @@ def extract_features(raw_url: str) -> list[float]:
 
 
 def score_url(raw_url: str, model_path: str, threshold_override: float | None = None) -> dict[str, Any]:
+    _install_posixshmem_import_shim()
     try:
         import joblib  # type: ignore
     except ImportError as exc:

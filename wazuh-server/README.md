@@ -244,35 +244,31 @@ The original model was serialized by scikit-learn 1.0.2. The Python runtime
 used by the Wazuh integration must have compatible NumPy, joblib and
 scikit-learn packages. Some Wazuh embedded Python builds omit `_posixshmem`,
 which prevents joblib from importing even when it was installed successfully.
-Use the dedicated ML runtime installer to build a virtual environment from the
-full Ubuntu Python instead:
-
-```bash
-sudo bash ./wazuh-server/install-ml-runtime.sh -v
-```
-
-The runtime is installed at
-`/var/ossec/var/edge-phishing-classifier/venv`. The integration launcher and ML
-administration scripts prefer this environment automatically, falling back to
-Wazuh's embedded Python only when the dedicated runtime is absent and usable.
-The runtime includes `python-whois` for guarded network feature collection.
-
-For an offline deployment, prepare a wheel directory containing compatible
-NumPy, joblib, scikit-learn, python-whois, and their dependencies, then run:
-
-```bash
-sudo bash ./wazuh-server/install-ml-runtime.sh \
-  --wheelhouse /path/to/wheels -v
-```
-
-First rerun Phase 4 after copying the updated repository so the legacy adapter
-is installed under `/var/ossec/integrations`:
+The legacy adapter installs a narrow import shim for serial model loading and
+prediction. Shared-memory and parallel joblib operations remain unavailable;
+the classifier does not use them. Rerun Phase 4 to install the adapter and the
+launcher before enabling the model:
 
 ```bash
 sudo bash ./wazuh-server/install-phase4.sh -v
 ```
 
-Then install the two original artifacts together:
+The model installer automatically selects the Wazuh interpreter when joblib,
+scikit-learn and NumPy can import through that compatibility layer.
+
+Alternatively, a dedicated virtual environment can be used, but it must be
+built from a complete Python 3.10 interpreter. Python 3.14 cannot install the
+NumPy/scikit-learn versions required by this artifact:
+
+```bash
+sudo bash ./wazuh-server/install-ml-runtime.sh \
+  --python /path/to/python3.10 -v
+```
+
+An offline wheel directory can additionally be supplied with
+`--wheelhouse /path/to/wheels`.
+
+After Phase 4 is updated, install the two original artifacts together:
 
 ```bash
 sudo python3 ./wazuh-server/install-ml-model.py \

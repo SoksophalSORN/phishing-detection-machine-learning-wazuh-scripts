@@ -36,6 +36,12 @@ done
 
 [[ "$EUID" -eq 0 ]] || { echo "Run this installer as root." >&2; exit 1; }
 [[ -x "$PYTHON_BIN" ]] || { echo "Python is not executable: $PYTHON_BIN" >&2; exit 1; }
+python_version="$($PYTHON_BIN -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+if [[ "$python_version" != "3.10" ]]; then
+  echo "The original scikit-learn 1.0.2 artifact requires a full Python 3.10 runtime; $PYTHON_BIN is Python $python_version." >&2
+  echo "Use --python /path/to/python3.10, or use the Wazuh Python compatibility shim installed by Phase 4." >&2
+  exit 1
+fi
 if [[ -n "$wheelhouse" && ! -d "$wheelhouse" ]]; then
   echo "Wheelhouse directory not found: $wheelhouse" >&2
   exit 1
