@@ -320,6 +320,43 @@ The first run reports whether the raw score is `suspicious` or `unlikely`.
 After observing the expected result, add `--expect suspicious` or
 `--expect unlikely` for repeatable acceptance testing.
 
+### Test an Unverified PhishTank Candidate List
+
+PhishTank's downloadable `online-valid` feeds contain only verified, online
+entries. To evaluate unverified candidates, export or curate a local list from
+PhishTank's unverified/online search results. A CSV can preserve the submission
+ID and verification state:
+
+```csv
+phish_id,url,verified
+12345678,https://suspected-example.test/login,no
+```
+
+Do not open the candidate URLs. Score the local list offline instead:
+
+```bash
+sudo python3 ./wazuh-server/test-ml-list.py \
+  --input /path/to/unverified-phish.csv \
+  --output /tmp/unverified-ml-results.jsonl \
+  --limit 500 -v
+```
+
+CSV, JSON, JSONL, and one-URL-per-line text inputs are supported. For structured
+input containing a `verified` field, the command accepts only explicit values
+such as `no`, `false`, `0`, `u`, or `unverified`; verified and unknown rows are
+skipped. Use `--url-column`, `--id-column`, or `--verified-column` when an export
+uses different field names. Plain text and structured files without a
+verification field are treated as operator-curated unverified lists and produce
+a warning.
+
+The test forces a local PhishTank-negative result and disables legacy WHOIS and
+page features. It therefore makes no request to PhishTank or any listed host,
+and it does not inject alerts into Wazuh. Results are written as mode-`0600`
+JSONL. `suspicious_fraction` is useful for comparing a fixed model and threshold
+between test runs, but it is not recall or accuracy because unverified entries
+are suspected candidates rather than confirmed labels. Use `--fail-under 0.5`
+only after establishing a project-specific baseline for a stable saved dataset.
+
 The score must not be interpreted as a percentage or calibrated probability.
 The original training extractor made its IP-address feature effectively
 constant, and unavailable WHOIS/page features fall back to suspicious defaults;
