@@ -8,6 +8,7 @@ RULE_DEST="$WAZUH_HOME/etc/rules/edge_phishing_classification_rules.xml"
 PIPELINE_RULES="$WAZUH_HOME/etc/rules/edge_phishing_pipeline_rules.xml"
 POLICY_MANIFEST="$WAZUH_HOME/etc/edge-phishing-rule-policy.json"
 WRAPPER_DEST="$WAZUH_HOME/integrations/custom-edge-phishing-classifier"
+PYTHON_WRAPPER_DEST="$WAZUH_HOME/integrations/custom-edge-phishing-classifier.py"
 MODULE_DEST="$WAZUH_HOME/integrations/edge_phishing_classifier.py"
 ML_MODULE_DEST="$WAZUH_HOME/integrations/url_ml.py"
 LEGACY_ML_MODULE_DEST="$WAZUH_HOME/integrations/legacy_url_ml.py"
@@ -61,6 +62,7 @@ fi
 
 required=(
   "$SOURCE/custom-edge-phishing-classifier"
+  "$SOURCE/custom-edge-phishing-classifier-launcher"
   "$SOURCE/edge_phishing_classifier.py"
   "$SOURCE/url_ml.py"
   "$SOURCE/legacy_url_ml.py"
@@ -133,7 +135,7 @@ fi
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 backup_dir="$WAZUH_HOME/backup/edge-phase4-$timestamp"
 mkdir -p "$backup_dir"
-managed=("$WRAPPER_DEST" "$MODULE_DEST" "$ML_MODULE_DEST" "$LEGACY_ML_MODULE_DEST" "$CONFIG_DEST")
+managed=("$WRAPPER_DEST" "$PYTHON_WRAPPER_DEST" "$MODULE_DEST" "$ML_MODULE_DEST" "$LEGACY_ML_MODULE_DEST" "$CONFIG_DEST")
 [[ "$unified_policy" -eq 0 ]] && managed+=("$RULE_DEST")
 for path in "${managed[@]}"; do
   [[ -e "$path" ]] && cp -a -- "$path" "$backup_dir/"
@@ -164,7 +166,8 @@ handle_install_error() {
 trap handle_install_error ERR
 
 echo "[2/6] Installing integration files and rules..."
-install -o root -g wazuh -m 0750 "$SOURCE/custom-edge-phishing-classifier" "$WRAPPER_DEST"
+install -o root -g wazuh -m 0750 "$SOURCE/custom-edge-phishing-classifier-launcher" "$WRAPPER_DEST"
+install -o root -g wazuh -m 0640 "$SOURCE/custom-edge-phishing-classifier" "$PYTHON_WRAPPER_DEST"
 install -o root -g wazuh -m 0640 "$SOURCE/edge_phishing_classifier.py" "$MODULE_DEST"
 install -o root -g wazuh -m 0640 "$SOURCE/url_ml.py" "$ML_MODULE_DEST"
 install -o root -g wazuh -m 0640 "$SOURCE/legacy_url_ml.py" "$LEGACY_ML_MODULE_DEST"

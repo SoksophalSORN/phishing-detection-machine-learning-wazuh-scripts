@@ -7,6 +7,7 @@ import argparse
 import dataclasses
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -14,6 +15,9 @@ import urllib.parse
 import uuid
 from pathlib import Path
 from types import ModuleType
+
+
+RUNTIME_MARKER = "EDGE_ML_WAZUH_PYTHON"
 
 
 def arguments() -> argparse.Namespace:
@@ -47,15 +51,29 @@ def expected_rule(home: Path, status: str) -> tuple[int, int]:
     return (100114, 9) if status == "suspicious" else (100113, 3)
 
 
+def use_wazuh_python(home: Path) -> None:
+    embedded = home / "framework" / "python" / "bin" / "python3"
+    if os.environ.get(RUNTIME_MARKER) == "1" or not embedded.is_file():
+        return
+    environment = os.environ.copy()
+    environment[RUNTIME_MARKER] = "1"
+    os.execve(
+        str(embedded),
+        [str(embedded), str(Path(__file__).resolve()), *sys.argv[1:]],
+        environment,
+    )
+
+
 def main() -> int:
     args = arguments()
+    home = Path(args.wazuh_home)
+    use_wazuh_python(home)
     parsed = urllib.parse.urlsplit(args.url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise SystemExit("--url must be an HTTP/HTTPS URL with a hostname")
     if parsed.username or parsed.password:
         raise SystemExit("--url must not contain embedded credentials")
 
-    home = Path(args.wazuh_home)
     integrations = home / "integrations"
     sys.path.insert(0, str(integrations))
     classifier = load_module(integrations / "edge_phishing_classifier.py", "installed_edge_classifier")

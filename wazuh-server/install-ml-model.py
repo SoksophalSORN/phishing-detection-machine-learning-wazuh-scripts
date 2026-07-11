@@ -17,6 +17,9 @@ from pathlib import Path
 from types import ModuleType
 
 
+RUNTIME_MARKER = "EDGE_ML_WAZUH_PYTHON"
+
+
 def arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter
@@ -85,8 +88,23 @@ def atomic_json_write(path: Path, value: dict, uid: int, gid: int, mode: int) ->
             temporary.unlink()
 
 
+def use_wazuh_python(home: Path) -> None:
+    embedded = home / "framework" / "python" / "bin" / "python3"
+    if os.environ.get(RUNTIME_MARKER) == "1" or not embedded.is_file():
+        return
+    environment = os.environ.copy()
+    environment[RUNTIME_MARKER] = "1"
+    os.execve(
+        str(embedded),
+        [str(embedded), str(Path(__file__).resolve()), *sys.argv[1:]],
+        environment,
+    )
+
+
 def main() -> int:
     args = arguments()
+    home = Path(args.wazuh_home)
+    use_wazuh_python(home)
     if os.geteuid() != 0:
         raise SystemExit("Run this installer as root.")
     if args.threshold is not None and not 0.0 <= args.threshold <= 1.0:
@@ -99,7 +117,6 @@ def main() -> int:
     if scaler_source is not None and not scaler_source.is_file():
         raise SystemExit("--legacy-scaler must name a regular file")
     legacy_mode = scaler_source is not None
-    home = Path(args.wazuh_home)
     modern_module_path = home / "integrations" / "url_ml.py"
     legacy_module_path = home / "integrations" / "legacy_url_ml.py"
     config_path = home / "etc" / "edge-phishing-classifier.json"
@@ -203,6 +220,7 @@ def main() -> int:
     print(f"Backup: {backup}")
     print("Next: run test-ml-path.py with a controlled URL.")
     if args.verbose:
+        print(f"Python runtime: {sys.executable}")
         print(json.dumps(installed_validation, indent=2))
     return 0
 

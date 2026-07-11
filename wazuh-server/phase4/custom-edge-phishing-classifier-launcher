@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+INTEGRATIONS_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
+WAZUH_HOME=$(CDPATH='' cd -- "$INTEGRATIONS_DIR/.." && pwd -P)
+WAZUH_PYTHON="$WAZUH_HOME/framework/python/bin/python3"
+PYTHON_SCRIPT="$INTEGRATIONS_DIR/custom-edge-phishing-classifier.py"
+
+if [ ! -x "$WAZUH_PYTHON" ]; then
+  echo "Wazuh embedded Python was not found: $WAZUH_PYTHON" >&2
+  exit 1
+fi
+
+exec "$WAZUH_PYTHON" "$PYTHON_SCRIPT" "$@"

@@ -242,8 +242,18 @@ the modern Edge event pipeline without retraining. The compatibility adapter:
 
 The original model was serialized by scikit-learn 1.0.2. The Python runtime
 used by the Wazuh integration must have compatible NumPy, joblib and
-scikit-learn packages. Guarded network feature collection additionally needs
-the `python-whois` module.
+scikit-learn packages. The installed integration launcher and ML administration
+scripts use Wazuh's embedded interpreter at
+`/var/ossec/framework/python/bin/python3`, rather than whichever interpreter
+`sudo python3` resolves to. Guarded network feature collection additionally
+needs the `python-whois` module in that same environment.
+
+Confirm the embedded environment directly:
+
+```bash
+sudo /var/ossec/framework/python/bin/python3 -c \
+  'import sys, joblib, sklearn, numpy; print(sys.executable, sklearn.__version__)'
+```
 
 First rerun Phase 4 after copying the updated repository so the legacy adapter
 is installed under `/var/ossec/integrations`:
