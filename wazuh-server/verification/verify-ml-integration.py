@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test the installed ML fallback and its Wazuh rule without network access."""
+"""Verify the installed ML fallback and its Wazuh rule without network access."""
 
 from __future__ import annotations
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Safely exercise the installed classifier without opening a phishing URL."""
+"""Verify live PhishTank classification without opening a phishing URL."""
 
 from __future__ import annotations
 

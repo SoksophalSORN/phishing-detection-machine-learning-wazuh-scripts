@@ -12,8 +12,35 @@ The modern-browser pilot captures top-level Microsoft Edge navigation through a 
 - [Windows native-host installation](native-host/README.md)
 - [Wazuh agent log collection](wazuh-agent/README.md)
 - [Wazuh server receipt and pilot alert](wazuh-server/README.md)
+- [Complete Wazuh-server installer](wazuh-server/install-wazuh-server.sh)
 - [Original implementation cleanup](wazuh-server/cleanup-original-implementation.md)
 - [Phase 4 classifier source and configuration](wazuh-server/phase4/)
+
+## Finalized Deployment Entry Points
+
+Use these files for staging and production deployment:
+
+```text
+Windows Wazuh agent: wazuh-agent/install-wazuh-agent.ps1
+Ubuntu Wazuh server: wazuh-server/install-wazuh-server.sh
+```
+
+Production example:
+
+```powershell
+.\wazuh-agent\install-wazuh-agent.ps1 -Environment Production
+```
+
+```bash
+sudo bash ./wazuh-server/install-wazuh-server.sh --environment production -v
+```
+
+For staging, change the environment value to `Staging` on Windows and
+`staging` on Ubuntu. Development tests are isolated under
+`wazuh-server/tests`; installed-system checks are under
+`wazuh-agent/verification` and `wazuh-server/verification`. Historical fork
+scripts are retained under `legacy/original-implementation` and are never
+installed by the finalized workflow.
 
 ## Contributors
 - [@Spades0](https://github.com/Spades0) co-author.
@@ -36,7 +63,12 @@ The modern-browser pilot captures top-level Microsoft Edge navigation through a 
 
 ## Legacy setup (superseded)
 
-The following Sysmon/Chrome-command-line setup documents the original forked implementation. It is retained for reference but should not be installed alongside the modern Edge pilot. Existing deployments should follow the [original implementation cleanup](wazuh-server/cleanup-original-implementation.md), then continue with the Phase 3 and Phase 4 plans.
+The following Sysmon/Chrome-command-line setup documents the
+[original forked implementation](legacy/original-implementation/README.md). It
+is retained for reference but should not be installed alongside the modern Edge
+pilot. Existing deployments should follow the [original implementation
+cleanup](wazuh-server/cleanup-original-implementation.md), then use the
+finalized deployment entry points above.
 
 Below is the original step-by-step implementation guide for integrating the phishing-detection ML scripts into a Wazuh deployment.
 

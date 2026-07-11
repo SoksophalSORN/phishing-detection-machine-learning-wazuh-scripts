@@ -3,6 +3,95 @@
 This directory covers Phase 3 transport verification, Phase 4 classification,
 and the final configurable rule policy.
 
+## Recommended Complete Server Installation
+
+For a new Wazuh manager, use the complete installer instead of running the
+historical phase scripts individually:
+
+```bash
+cd /path/to/phishing-detection-machine-learning-wazuh-scripts
+sudo bash ./wazuh-server/install-wazuh-server.sh --environment production -v
+```
+
+When the repository root contains the supplied `model.joblib` and
+`scaler.joblib`, they are selected automatically in original-model
+compatibility mode. The complete installer performs the following sequence:
+
+1. Scans Wazuh's active rules and installs the configurable navigation and
+   classification policy.
+2. Installs and registers the structured Edge phishing classifier.
+3. Validates and installs the trusted model and scaler.
+4. Forces a PhishTank-negative result and exercises ML entirely offline.
+5. Confirms the selected ML Wazuh rule and validates the running manager.
+
+It takes a pre-installation snapshot of every managed rule, configuration,
+integration, and model file. If any stage fails, the complete pre-installation
+state is restored and the manager is restarted. Child installers retain their
+own narrower backups as additional recovery points.
+
+The secure default disables the original model's WHOIS and page-derived network
+features. Explicitly enable their guarded compatibility implementation only if
+that server-side retrieval risk is accepted:
+
+```bash
+sudo bash ./wazuh-server/install-wazuh-server.sh \
+  --enable-legacy-network-features -v
+```
+
+Use the integrated rule wizard when existing local rules or organizational
+severity policy require custom IDs, levels, or Wazuh group names:
+
+```bash
+sudo bash ./wazuh-server/install-wazuh-server.sh \
+  --environment production --wizard -v
+```
+
+Every wizard value can also be supplied non-interactively. For example:
+
+```bash
+sudo bash ./wazuh-server/install-wazuh-server.sh --environment production -v \
+  --group-name browser_navigation,phishing_detection \
+  --preferred-start 100300 \
+  --navigation-rule-id 100300 --navigation-level 5 \
+  --classification-base-rule-id 100301 --classification-base-level 0 \
+  --phishtank-rule-id 100302 --phishtank-level 10 \
+  --ml-rule-id 100303 --ml-level 9 \
+  --error-rule-id 100304 --error-level 5 \
+  --negative-rule-id 100305 --negative-level 0
+```
+
+For a different trusted artifact, supply `--model`; add `--legacy-scaler` only
+for an original SVR/scaler pair. `--threshold` overrides the decision threshold.
+An optional PhishTank key can be entered without exposing it in shell history:
+
+```bash
+sudo bash ./wazuh-server/install-wazuh-server.sh \
+  --api-key-prompt -v
+```
+
+The installation proves the local PhishTank classification contract and Wazuh
+rule with a synthetic result. It does not require the external PhishTank API to
+be reachable during installation. A later API outage or Cloudflare challenge
+is reported by the configured classifier-error rule and is operational state,
+not an installation rollback condition.
+
+This script installs only the Ubuntu Wazuh-manager side. The Edge extension,
+Windows native host, and Windows Wazuh-agent `localfile` configuration must
+already be deployed using their respective instructions.
+
+For staging, use:
+
+```bash
+sudo bash ./wazuh-server/install-wazuh-server.sh --environment staging -v
+```
+
+The staging profile changes the routine negative/unknown classification level
+from `0` to `3`, making successful fallback processing visible during
+acceptance testing. Production restores it to `0`. Both profiles retain the
+configured level-5 navigation rule because it triggers the classifier.
+The chosen server profile is persisted in root-controlled
+`/var/ossec/etc/edge-phishing-deployment.json`.
+
 ## Phase 3: Server Receipt and Pilot Alert
 
 Phase 3 proves that the Edge navigation event crosses the complete transport boundary:
@@ -64,7 +153,7 @@ After installation:
 3. On Ubuntu, run:
 
 ```bash
-sudo ./wazuh-server/verify-phase3.sh \
+sudo ./wazuh-server/verification/verify-navigation-ingestion.sh \
   --event-id "PASTE_EVENT_ID" \
   --wait 60
 ```
@@ -117,7 +206,7 @@ sudo ./wazuh-server/audit-original-installation.sh
 
 ## Proceed to Phase 4
 
-After a real event passes `verify-phase3.sh`, install the structured PhishTank classifier:
+After a real event passes `verify-navigation-ingestion.sh`, install the structured PhishTank classifier:
 
 ```bash
 sudo bash ./wazuh-server/install-phase4.sh -v
@@ -143,7 +232,7 @@ sudo bash ./wazuh-server/install-phase4.sh -v \
 Open a fresh URL in Edge, copy its navigation `event_id`, and verify the classification result:
 
 ```bash
-sudo bash ./wazuh-server/verify-phase4.sh \
+sudo bash ./wazuh-server/verification/verify-classification-event.sh \
   --source-event-id "PASTE_EVENT_ID" \
   --wait 60
 ```
@@ -219,7 +308,7 @@ Choose a URL that PhishTank currently marks as verified and active. Do not open
 it in Edge. Submit it directly to the installed classifier:
 
 ```bash
-sudo python3 ./wazuh-server/test-phishing-path.py \
+sudo python3 ./wazuh-server/verification/verify-phishtank-integration.py \
   --url 'https://verified-test-url.example/path' --wait 60
 ```
 
@@ -312,7 +401,7 @@ Test the installed scaler, SVR, forced PhishTank-negative fallback, and chosen
 Wazuh rule without opening the target or making a network request:
 
 ```bash
-sudo python3 ./wazuh-server/test-ml-path.py \
+sudo python3 ./wazuh-server/verification/verify-ml-integration.py \
   --url 'https://controlled-test.example/login' -v
 ```
 
@@ -335,7 +424,7 @@ phish_id,url,verified
 Do not open the candidate URLs. Score the local list offline instead:
 
 ```bash
-sudo python3 ./wazuh-server/test-ml-list.py \
+sudo python3 ./wazuh-server/tools/evaluate-ml-list.py \
   --input /path/to/unverified-phish.csv \
   --output /tmp/unverified-ml-results.jsonl \
   --limit 500 -v
@@ -424,7 +513,7 @@ the configured Wazuh ML/negative rule without opening the target or making any
 network request:
 
 ```bash
-sudo python3 ./wazuh-server/test-ml-path.py \
+sudo python3 ./wazuh-server/verification/verify-ml-integration.py \
   --url 'https://controlled-test.example/login' -v
 ```
 

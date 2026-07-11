@@ -1,5 +1,7 @@
 [CmdletBinding()]
 param(
+    [ValidateSet("Production", "Staging")]
+    [string]$Environment = "Production",
     [string]$ConfigPath = "${env:ProgramFiles(x86)}\ossec-agent\ossec.conf",
     [string]$NavigationLog = "$env:ProgramData\PhishingDetection\browser-navigation.json",
     [string]$AgentLog = "${env:ProgramFiles(x86)}\ossec-agent\ossec.log",
@@ -34,9 +36,10 @@ function Write-Utf8WithoutBom([string]$Path, [string]$Content) {
     [IO.File]::WriteAllText($Path, $Content, $encoding)
 }
 
-function New-ConfigurationBlock([string]$LogPath) {
+function New-ConfigurationBlock([string]$LogPath, [string]$DeploymentEnvironment) {
     return @"
   $BeginMarker
+  <!-- deployment_environment: $($DeploymentEnvironment.ToLowerInvariant()) -->
   <localfile>
     <location>$LogPath</location>
     <log_format>json</log_format>
@@ -76,7 +79,7 @@ if ($hasBegin -xor $hasEnd) {
     throw "The Wazuh configuration contains an incomplete Edge navigation marker block. Restore a valid backup before continuing."
 }
 
-$block = New-ConfigurationBlock $NavigationLog
+$block = New-ConfigurationBlock $NavigationLog $Environment
 if ($hasBegin -and $hasEnd) {
     $pattern = "(?s)[ \t]*" + [Regex]::Escape($BeginMarker) + ".*?" + [Regex]::Escape($EndMarker)
     $markerRegex = New-Object Text.RegularExpressions.Regex($pattern)
@@ -130,9 +133,10 @@ if (Test-Path -LiteralPath $AgentLog -PathType Leaf) {
 Write-Host "Edge navigation collection block $action in $ConfigPath"
 Write-Host "Backup: $backupPath"
 Write-Host "Wazuh service '$ServiceName' is running."
+Write-Host "Deployment environment: $Environment"
 if ($monitoringConfirmed) {
     Write-Host "The agent log confirms that logcollector recognized browser-navigation.json."
 } else {
-    Write-Warning "No monitoring entry was found in '$AgentLog' within 30 seconds. Run verify-log-collection.ps1 and inspect the agent log."
+    Write-Warning "No monitoring entry was found in '$AgentLog' within 30 seconds. Run verification\verify-wazuh-agent.ps1 and inspect the agent log."
 }
 Write-Host "Because only-future-events is 'no', existing uncollected JSONL records are eligible for collection."

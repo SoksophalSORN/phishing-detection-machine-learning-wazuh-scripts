@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Score a local list of unverified suspected-phishing URLs without network access."""
+"""Evaluate ML against a local suspected-phishing URL list without network access."""
 
 from __future__ import annotations
 

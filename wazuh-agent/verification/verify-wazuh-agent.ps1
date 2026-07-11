@@ -1,5 +1,7 @@
 [CmdletBinding()]
 param(
+    [ValidateSet("", "Production", "Staging")]
+    [string]$ExpectedEnvironment = "",
     [string]$ConfigPath = "${env:ProgramFiles(x86)}\ossec-agent\ossec.conf",
     [string]$NavigationLog = "$env:ProgramData\PhishingDetection\browser-navigation.json",
     [string]$AgentLog = "${env:ProgramFiles(x86)}\ossec-agent\ossec.log",
@@ -32,6 +34,14 @@ if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
         Write-Host "[PASS] Wazuh configuration contains the Edge JSON collection block."
     } else {
         $failures.Add("Edge JSON collection block is missing or incomplete in '$ConfigPath'.")
+    }
+    if ($ExpectedEnvironment) {
+        $environmentMarker = "deployment_environment: $($ExpectedEnvironment.ToLowerInvariant())"
+        if ($configuration.Contains($environmentMarker)) {
+            Write-Host "[PASS] Deployment environment is $ExpectedEnvironment."
+        } else {
+            $failures.Add("Expected deployment marker '$environmentMarker' was not found.")
+        }
     }
 }
 
@@ -87,5 +97,5 @@ if ($failures.Count -gt 0) {
     exit 1
 }
 
-Write-Host "Phase 2 endpoint checks passed."
+Write-Host "Wazuh agent navigation-collection checks passed."
 Write-Host "Generate a new Edge navigation event, then use the Phase 3 manager checks to prove that the forwarded event reached the server."

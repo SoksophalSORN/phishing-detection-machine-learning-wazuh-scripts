@@ -6,7 +6,7 @@ event_id=""
 wait_seconds=0
 
 usage() {
-  echo "Usage: verify-phase4.sh --source-event-id EVENT_ID [--wait SECONDS]"
+  echo "Usage: verify-classification-event.sh --source-event-id EVENT_ID [--wait SECONDS]"
 }
 while [[ $# -gt 0 ]]; do
   case "$1" in

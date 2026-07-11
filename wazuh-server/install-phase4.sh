@@ -66,9 +66,6 @@ required=(
   "$SOURCE/edge_phishing_classifier.py"
   "$SOURCE/url_ml.py"
   "$SOURCE/legacy_url_ml.py"
-  "$SOURCE/test_edge_phishing_classifier.py"
-  "$SOURCE/test_url_ml.py"
-  "$SOURCE/test_legacy_url_ml.py"
   "$OSSEC_CONFIG" "$ANALYSISD" "$LOGTEST"
 )
 if [[ -e "$PIPELINE_RULES" || -e "$POLICY_MANIFEST" ]]; then
@@ -115,8 +112,15 @@ PY
   config_source="$temporary_config"
 fi
 
-echo "[1/6] Running classifier unit tests..."
-(cd "$SOURCE" && python3 -m unittest -v test_edge_phishing_classifier.py test_url_ml.py test_legacy_url_ml.py)
+echo "[1/6] Validating classifier source files..."
+python3 - "$SOURCE/edge_phishing_classifier.py" "$SOURCE/url_ml.py" "$SOURCE/legacy_url_ml.py" <<'PY'
+import ast
+import sys
+from pathlib import Path
+for value in sys.argv[1:]:
+    path = Path(value)
+    ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+PY
 if [[ -n "$config_source" ]]; then
   python3 -m json.tool "$config_source" >/dev/null
 fi
@@ -292,7 +296,7 @@ trap - ERR
 echo "Phase 4 PhishTank integration installed successfully."
 echo "Backup: $backup_dir"
 if [[ "$unified_policy" -eq 1 ]]; then
-  echo "Routine negative alerts are suppressed. Use test-phishing-path.py with a currently verified PhishTank URL."
+  echo "Routine negative alerts are suppressed. Use verification/verify-phishtank-integration.py with a currently verified PhishTank URL."
 else
-  echo "Open a fresh Edge URL and verify its source event ID with verify-phase4.sh."
+  echo "Open a fresh Edge URL and verify its source event ID with verification/verify-classification-event.sh."
 fi

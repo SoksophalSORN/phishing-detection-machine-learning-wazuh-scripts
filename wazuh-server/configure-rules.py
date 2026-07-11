@@ -343,7 +343,7 @@ def install(policy: Policy, xml: str, home: Path, verbose: bool) -> None:
         update_classifier_config(config_path, policy.navigation_rule_id)
         update_integration_rule_id(ossec_path, policy.navigation_rule_id)
         if not config_path.exists():
-            print("WARNING: classifier configuration is not installed; run install-phase4.sh.", file=sys.stderr)
+            print("WARNING: classifier configuration is not installed; run install-wazuh-server.sh.", file=sys.stderr)
         if not ossec_path.exists():
             print("WARNING: ossec.conf was not found; the classifier trigger was not updated.", file=sys.stderr)
         subprocess.run([str(home / "bin" / "wazuh-analysisd"), "-t"], check=True)

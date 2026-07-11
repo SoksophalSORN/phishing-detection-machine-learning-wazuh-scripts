@@ -4,8 +4,10 @@ import unittest
 from pathlib import Path
 
 
-ROOT = Path(__file__).parent
-spec = importlib.util.spec_from_file_location("test_ml_list_script", ROOT / "test-ml-list.py")
+ROOT = Path(__file__).resolve().parents[2]
+spec = importlib.util.spec_from_file_location(
+    "evaluate_ml_list_script", ROOT / "tools" / "evaluate-ml-list.py"
+)
 SCRIPT = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 spec.loader.exec_module(SCRIPT)

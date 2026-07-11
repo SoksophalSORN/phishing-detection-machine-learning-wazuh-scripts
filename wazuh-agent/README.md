@@ -17,13 +17,13 @@ C:\Program Files (x86)\ossec-agent\ossec.conf
 C:\Program Files (x86)\ossec-agent\ossec.log
 ```
 
-## Install
+## Production Installation
 
 From the repository root on the Windows endpoint:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
-.\wazuh-agent\install-log-collection.ps1
+.\wazuh-agent\install-wazuh-agent.ps1 -Environment Production
 ```
 
 The installer:
@@ -51,17 +51,31 @@ The installed block is:
 If Wazuh was installed in a non-default directory, pass its configuration and internal log paths explicitly:
 
 ```powershell
-.\wazuh-agent\install-log-collection.ps1 `
+.\wazuh-agent\install-wazuh-agent.ps1 -Environment Production `
   -ConfigPath "D:\Wazuh\ossec.conf" `
   -AgentLog "D:\Wazuh\ossec.log"
 ```
+
+## Staging Installation
+
+Use the same finalized installer with an explicit staging profile:
+
+```powershell
+.\wazuh-agent\install-wazuh-agent.ps1 -Environment Staging
+```
+
+Both profiles collect the same versioned event contract. The selected profile
+is recorded as a comment inside the managed configuration block so deployment
+provenance is visible without adding unsupported Wazuh XML elements. Server-side
+staging controls alert visibility separately.
 
 ## Verify the Endpoint
 
 Run:
 
 ```powershell
-.\wazuh-agent\verify-log-collection.ps1
+.\wazuh-agent\verification\verify-wazuh-agent.ps1 `
+  -ExpectedEnvironment Production
 ```
 
 Expected checks:
@@ -90,7 +104,7 @@ Check particularly for configuration errors, file-access failures, a full agent 
 To remove only the Wazuh collection block:
 
 ```powershell
-.\wazuh-agent\uninstall-log-collection.ps1
+.\wazuh-agent\uninstall-wazuh-agent.ps1
 ```
 
 The script backs up `ossec.conf`, removes the marked block, and restarts Wazuh. It does not remove the extension, native host, or navigation logs.

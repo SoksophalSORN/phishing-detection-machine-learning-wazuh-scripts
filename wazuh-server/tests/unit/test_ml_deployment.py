@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def load(name, path):
@@ -16,7 +16,7 @@ def load(name, path):
 
 
 INSTALLER = load("install_ml_model", ROOT / "install-ml-model.py")
-VERIFIER = load("test_ml_path", ROOT / "test-ml-path.py")
+VERIFIER = load("verify_ml_integration", ROOT / "verification" / "verify-ml-integration.py")
 
 
 class MLDeploymentTests(unittest.TestCase):

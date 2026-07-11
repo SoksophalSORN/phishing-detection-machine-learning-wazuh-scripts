@@ -1,7 +1,10 @@
 import sys
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "phase4"))
 
 from legacy_url_ml import (
     LEGACY_FEATURE_NAMES,

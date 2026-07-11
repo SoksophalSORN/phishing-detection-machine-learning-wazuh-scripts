@@ -55,6 +55,6 @@ try {
     throw "Removal failed and the Wazuh configuration was restored: $($failure.Exception.Message)"
 }
 
-Write-Host "Edge navigation collection was removed from Wazuh."
+Write-Host "Edge navigation collection was removed from the Wazuh agent."
 Write-Host "Backup: $backupPath"
 Write-Host "Browser navigation logs were preserved."

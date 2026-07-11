@@ -1,7 +1,10 @@
 import sys
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "phase4"))
 
 from url_ml import FEATURE_NAMES, extract_features, score_url
 

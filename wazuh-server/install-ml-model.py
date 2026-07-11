@@ -244,7 +244,7 @@ def main() -> int:
     print(f"Effective threshold: {validation['threshold']}")
     print(validation_score_message(installed_validation, args.test_url))
     print(f"Backup: {backup}")
-    print("Next: run test-ml-path.py with a controlled URL.")
+    print("Next: run verification/verify-ml-integration.py with a controlled URL.")
     if args.verbose:
         print(f"Python runtime: {sys.executable}")
         print(json.dumps(installed_validation, indent=2))

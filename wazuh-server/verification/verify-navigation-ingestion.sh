@@ -3,7 +3,9 @@ set -Eeuo pipefail
 
 WAZUH_HOME="${WAZUH_HOME:-/var/ossec}"
 RULE_ID="100100"
+RULE_LEVEL="3"
 RULE_FILE="$WAZUH_HOME/etc/rules/edge_navigation_rules.xml"
+POLICY_FILE="$WAZUH_HOME/etc/edge-phishing-rule-policy.json"
 ALERTS_FILE="$WAZUH_HOME/logs/alerts/alerts.json"
 ARCHIVES_FILE="$WAZUH_HOME/logs/archives/archives.json"
 ANALYSISD="$WAZUH_HOME/bin/wazuh-analysisd"
@@ -14,8 +16,8 @@ wait_seconds=0
 usage() {
   cat <<'USAGE'
 Usage:
-  sudo ./verify-phase3.sh
-  sudo ./verify-phase3.sh --event-id EVENT_ID [--wait SECONDS]
+  sudo ./verification/verify-navigation-ingestion.sh
+  sudo ./verification/verify-navigation-ingestion.sh --event-id EVENT_ID [--wait SECONDS]
 
 Without an event ID, the script validates the service, ruleset, and sample rule
 match. With an event ID, it also waits for and locates the real Edge alert.
@@ -55,6 +57,19 @@ failures=0
 pass() { echo "[PASS] $*"; }
 fail() { echo "[FAIL] $*" >&2; failures=$((failures + 1)); }
 
+if [[ -f "$POLICY_FILE" ]]; then
+  policy_values="$(python3 - "$POLICY_FILE" <<'PY'
+import json
+import sys
+from pathlib import Path
+value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+print(int(value["navigation_rule_id"]), int(value["navigation_level"]))
+PY
+)" || { echo "Installed rule policy is invalid: $POLICY_FILE" >&2; exit 1; }
+  read -r RULE_ID RULE_LEVEL <<< "$policy_values"
+  RULE_FILE="$WAZUH_HOME/etc/rules/edge_phishing_pipeline_rules.xml"
+fi
+
 if systemctl is-active --quiet wazuh-manager; then
   pass "wazuh-manager is active."
 else
@@ -74,7 +89,7 @@ else
 fi
 
 sample_event='{"schema_version":1,"event_type":"browser_navigation","event_id":"phase3-verification-event","timestamp":"2026-07-10T10:00:29.005Z","browser":"edge","url":"https://example.test/phase3","tab_id":1,"document_id":"PHASE3","navigation_kind":"committed","transition_type":"typed","transition_qualifiers":[],"source":"edge_extension"}'
-if printf '%s\n' "$sample_event" | "$LOGTEST" -q -U "$RULE_ID:3:json"; then
+if printf '%s\n' "$sample_event" | "$LOGTEST" -q -U "$RULE_ID:$RULE_LEVEL:json"; then
   pass "Sample Edge JSON matches rule $RULE_ID through decoder json."
 else
   fail "Sample Edge JSON does not match rule $RULE_ID."
