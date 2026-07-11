@@ -17,6 +17,7 @@ func validEvent() navigationEvent {
 		Timestamp:            "2026-07-10T08:14:22.491Z",
 		Browser:              "edge",
 		URL:                  "https://example.test/login?token=secret#private",
+		URLHost:              "example.test",
 		TabID:                42,
 		DocumentID:           "doc-1",
 		NavigationKind:       "committed",
@@ -39,6 +40,9 @@ func TestParseAndValidateEvent(t *testing.T) {
 	if event.URL != "https://example.test/login?token=%5BREDACTED%5D" {
 		t.Fatalf("unexpected normalized URL: %s", event.URL)
 	}
+	if event.URLHost != "example.test" {
+		t.Fatalf("unexpected URL host: %s", event.URLHost)
+	}
 }
 
 func TestRejectsUnsupportedScheme(t *testing.T) {
@@ -48,6 +52,28 @@ func TestRejectsUnsupportedScheme(t *testing.T) {
 
 	if _, _, err := parseAndValidateEvent(payload); err == nil {
 		t.Fatal("expected unsupported scheme to be rejected")
+	}
+}
+
+func TestRejectsMismatchedURLHost(t *testing.T) {
+	event := validEvent()
+	event.URLHost = "attacker.test"
+	payload, _ := json.Marshal(event)
+	if _, _, err := parseAndValidateEvent(payload); err == nil {
+		t.Fatal("expected mismatched url_host to be rejected")
+	}
+}
+
+func TestNormalizeURLRedactsSearchTerms(t *testing.T) {
+	normalized, host, err := normalizeURL("https://www.bing.com/search?q=private+words&FORM=TEST")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if host != "www.bing.com" {
+		t.Fatalf("unexpected host: %s", host)
+	}
+	if normalized != "https://www.bing.com/search?FORM=TEST&q=%5BREDACTED%5D" {
+		t.Fatalf("search term was not redacted: %s", normalized)
 	}
 }
 

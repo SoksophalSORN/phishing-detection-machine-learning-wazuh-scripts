@@ -102,7 +102,9 @@ Edit:
 /var/ossec/etc/ossec.conf
 ```
 
-Remove only the original block that invokes rule `100002`, typically:
+Remove only the original `custom-phishing-detection.py` block. Depending on the
+fork revision, its `<rule_id>` may be `100002`, `100302`, or `100303`. A common
+variant is:
 
 ```xml
 <integration>
@@ -115,15 +117,29 @@ Remove only the original block that invokes rule `100002`, typically:
 
 Do not remove unrelated integrations.
 
-### Remove the original rules
+### Remove or retain the original rules deliberately
 
-From `/var/ossec/etc/rules/local_rules.xml`, or whichever custom file the audit reports, remove only the old rules:
+Two variants of the original project have been observed. From
+`/var/ossec/etc/rules/local_rules.xml`, or whichever custom file the audit
+reports, remove only the obsolete rules that are active:
 
 - `100002`: Chrome process command-line match.
 - `100003`: original PhishTank result alert.
 - `100004`: original ML result alert.
+- `100302`: Microsoft Edge command-line/Sysmon match.
+- `100303`: Chrome command-line/Sysmon match.
+- `100309`: legacy ML result using `phishtank.found`/`gotten_from` fields.
+- `100310`: legacy PhishTank result using `phishtank.found`/`gotten_from` fields.
 
-Do not remove the new Phase 3 rule `100100` or its file:
+Rules `100300` and `100301` in the supplied block are Gmail monitoring rules,
+not browser URL rules. Keep them if Gmail monitoring is still required. If the
+entire block is already inside an XML comment, no active cleanup is needed;
+the new rule configurator ignores commented IDs when it searches for a free
+range.
+
+Before running the final rule-policy wizard, keep the Phase 3 rule `100100` and
+its file. The wizard backs it up and replaces it with the unified configurable
+policy, so it should not be deleted manually first:
 
 ```text
 /var/ossec/etc/rules/edge_navigation_rules.xml
@@ -132,8 +148,8 @@ Do not remove the new Phase 3 rule `100100` or its file:
 Search again to confirm the old IDs are gone:
 
 ```bash
-sudo grep -RInE --include='*.xml' '<rule id="10000[234]"' /var/ossec/etc/rules || true
-sudo grep -nEi 'custom-phishing|100002' /var/ossec/etc/ossec.conf || true
+sudo grep -RInE --include='*.xml' '<rule id="(10000[234]|10030[239]|100310)"' /var/ossec/etc/rules || true
+sudo grep -nEi 'custom-phishing|100002|10030[239]|100310' /var/ossec/etc/ossec.conf || true
 ```
 
 Validate before restart:
@@ -150,9 +166,11 @@ sudo systemctl is-active wazuh-manager
 sudo tail -n 100 /var/ossec/logs/ossec.log
 ```
 
-### Preserve integration files for Phase 4
+### Archive legacy integration files
 
-Once the `<integration>` block is removed, the old script is no longer invoked by that configuration. Keep the backed-up files until Phase 4 determines whether the model and scaler will be reused:
+Once the `<integration>` block is removed, the old script is no longer invoked
+by that configuration. The modern URL-only ML path does not reuse the old SVR
+model or scaler, but keep a backup until the replacement model is accepted:
 
 ```text
 /var/ossec/integrations/custom-phishing-detection.py
@@ -176,7 +194,8 @@ Run the command only after confirming the backup and filenames. File removal is 
 - The Edge extension and native host.
 - `C:\ProgramData\PhishingDetection\browser-navigation.json` during the pilot.
 - The new Windows Wazuh `localfile` block.
-- `/var/ossec/etc/rules/edge_navigation_rules.xml` during Phase 3.
+- `/var/ossec/etc/rules/edge_navigation_rules.xml` until the unified policy wizard replaces it.
+- Active Gmail rules `100300` and `100301`, if Gmail monitoring is still in scope.
 - Wazuh agent enrollment keys or certificates.
 - Historical Wazuh alerts, indexes, or Sysmon events unless a retention policy authorizes deletion.
 - Model and scaler backups until the Phase 4 model decision is complete.
@@ -185,7 +204,7 @@ Run the command only after confirming the backup and filenames. File removal is 
 
 - The Windows Wazuh service is running and still analyzes `browser-navigation.json`.
 - The Ubuntu `wazuh-manager` service is active.
-- Rules `100002`, `100003`, and `100004` are absent.
+- Obsolete active rules `100002`-`100004`, `100302`, `100303`, `100309`, and `100310` are absent.
 - The old `custom-phishing-detection.py` integration block is absent.
-- Rule `100100` passes `wazuh-logtest` and produces the Phase 3 pilot alert.
+- The configured navigation rule passes `wazuh-logtest` and triggers the modern classifier.
 - No new invocations of the old integration appear in `/var/ossec/logs/integrations.log`.

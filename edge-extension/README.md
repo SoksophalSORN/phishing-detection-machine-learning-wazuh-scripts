@@ -29,7 +29,14 @@ The host output is:
 C:\ProgramData\PhishingDetection\browser-navigation.json
 ```
 
-Each line is one complete JSON event. The extension removes URL fragments, removes embedded credentials, and redacts values for common sensitive query parameters before delivery.
+Each line is one complete JSON event. The extension removes URL fragments and
+embedded credentials, redacts values for common sensitive query parameters,
+redacts search terms on common search-engine hosts, and adds a separate
+`url_host` field for privacy-safe descriptions and dashboards.
+
+After pulling an extension update, select **Reload** on `edge://extensions`.
+When the native host is also updated, rerun `install-host.ps1` as Administrator
+so the rebuilt executable is copied into `C:\Program Files\PhishingDetection`.
 
 ## Required Manual Tests
 

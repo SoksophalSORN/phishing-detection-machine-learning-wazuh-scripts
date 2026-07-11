@@ -32,12 +32,27 @@ class ClassifierTests(unittest.TestCase):
         parsed = validate_navigation_alert(self.navigation_alert())
         self.assertEqual(parsed["source_event_id"], "event-1")
         self.assertEqual(parsed["agent"]["id"], "002")
+        self.assertEqual(parsed["url_host"], "example.test")
+
+    def test_accepts_configured_navigation_rule(self):
+        alert = self.navigation_alert()
+        alert["rule"]["id"] = "100300"
+        parsed = validate_navigation_alert(alert, "100300")
+        self.assertEqual(parsed["source_rule_id"], "100300")
 
     def test_rejects_wrong_rule(self):
         alert = self.navigation_alert()
         alert["rule"]["id"] = "100999"
         with self.assertRaises(ClassificationError):
             validate_navigation_alert(alert)
+
+    def test_rejects_ambiguous_ml_enabled_value(self):
+        with self.assertRaises(ClassificationError):
+            Settings.from_mapping({"ml": {"enabled": "false"}})
+
+    def test_rejects_relative_enabled_model_path(self):
+        with self.assertRaises(ClassificationError):
+            Settings.from_mapping({"ml": {"enabled": True, "model_path": "model.joblib"}})
 
     def test_normalizes_confirmed_phish(self):
         result = normalize_phishtank_result({
@@ -79,6 +94,61 @@ class ClassifierTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertFalse(first["classification"]["cache_hit"])
         self.assertTrue(second["classification"]["cache_hit"])
+
+    def test_ml_scores_unconfirmed_phishtank_result(self):
+        navigation = validate_navigation_alert(self.navigation_alert())
+        settings = Settings(ml_enabled=True)
+        ml_calls = []
+
+        def query(_url, _settings):
+            return {
+                "status": "not_found", "malicious": False,
+                "in_database": False, "verified": False, "valid": False,
+            }
+
+        def score(url, model_path, threshold):
+            ml_calls.append((url, model_path, threshold))
+            return {
+                "score": 0.91, "score_percent": 91.0,
+                "threshold": 0.8, "model_version": "test-v1",
+            }
+
+        with tempfile.TemporaryDirectory() as directory:
+            cache = ResultCache(Path(directory) / "cache.sqlite3")
+            try:
+                result = classify_navigation(navigation, settings, cache, query=query, ml_scorer=score)
+            finally:
+                cache.close()
+
+        self.assertEqual(len(ml_calls), 1)
+        self.assertEqual(result["classification"]["status"], "suspicious")
+        self.assertEqual(result["classification"]["source"], "ml")
+        self.assertEqual(result["classification"]["model_version"], "test-v1")
+
+    def test_ml_does_not_override_confirmed_phishtank_result(self):
+        navigation = validate_navigation_alert(self.navigation_alert())
+        settings = Settings(ml_enabled=True)
+
+        def query(_url, _settings):
+            return {
+                "status": "malicious", "malicious": True,
+                "in_database": True, "verified": True, "valid": True,
+            }
+
+        def unexpected_score(_url, _model_path, _threshold):
+            self.fail("ML must not run for a confirmed PhishTank result")
+
+        with tempfile.TemporaryDirectory() as directory:
+            cache = ResultCache(Path(directory) / "cache.sqlite3")
+            try:
+                result = classify_navigation(
+                    navigation, settings, cache, query=query, ml_scorer=unexpected_score
+                )
+            finally:
+                cache.close()
+
+        self.assertEqual(result["classification"]["status"], "malicious")
+        self.assertEqual(result["classification"]["source"], "phishtank")
 
 
 if __name__ == "__main__":

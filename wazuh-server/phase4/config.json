@@ -4,5 +4,11 @@
   "user_agent": "phishtank/wazuh-edge-phishing-pilot",
   "timeout_seconds": 8,
   "positive_cache_seconds": 21600,
-  "negative_cache_seconds": 900
+  "negative_cache_seconds": 900,
+  "navigation_rule_id": "100100",
+  "ml": {
+    "enabled": false,
+    "model_path": "/var/ossec/etc/edge-url-model.joblib",
+    "threshold": null
+  }
 }

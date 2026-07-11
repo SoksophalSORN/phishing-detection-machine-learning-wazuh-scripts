@@ -35,6 +35,12 @@ var sensitiveParameters = map[string]struct{}{
 	"token":         {},
 }
 
+var searchParameters = map[string]struct{}{
+	"p": {}, "pq": {}, "q": {}, "query": {}, "search": {}, "text": {},
+}
+
+var searchEngineDomains = []string{"bing.com", "google.com", "duckduckgo.com", "search.yahoo.com"}
+
 type navigationEvent struct {
 	SchemaVersion        int      `json:"schema_version"`
 	EventType            string   `json:"event_type"`
@@ -42,6 +48,7 @@ type navigationEvent struct {
 	Timestamp            string   `json:"timestamp"`
 	Browser              string   `json:"browser"`
 	URL                  string   `json:"url"`
+	URLHost              string   `json:"url_host"`
 	TabID                int64    `json:"tab_id"`
 	DocumentID           string   `json:"document_id,omitempty"`
 	NavigationKind       string   `json:"navigation_kind"`
@@ -189,11 +196,15 @@ func parseAndValidateEvent(payload []byte) (navigationEvent, string, error) {
 	}
 	event.Timestamp = timestamp.UTC().Format(time.RFC3339Nano)
 
-	normalizedURL, err := normalizeURL(event.URL)
+	normalizedURL, normalizedHost, err := normalizeURL(event.URL)
 	if err != nil {
 		return navigationEvent{}, event.EventID, err
 	}
+	if event.URLHost != "" && !strings.EqualFold(event.URLHost, normalizedHost) {
+		return navigationEvent{}, event.EventID, errors.New("url_host does not match URL")
+	}
 	event.URL = normalizedURL
+	event.URLHost = normalizedHost
 
 	return event, event.EventID, nil
 }
@@ -204,28 +215,41 @@ func extractEventID(raw map[string]json.RawMessage) string {
 	return eventID
 }
 
-func normalizeURL(raw string) (string, error) {
+func normalizeURL(raw string) (string, string, error) {
 	if len(raw) == 0 || len(raw) > maxURLLength {
-		return "", errors.New("invalid URL length")
+		return "", "", errors.New("invalid URL length")
 	}
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Hostname() == "" {
-		return "", errors.New("invalid URL")
+		return "", "", errors.New("invalid URL")
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return "", errors.New("unsupported URL scheme")
+		return "", "", errors.New("unsupported URL scheme")
 	}
 
 	parsed.User = nil
 	parsed.Fragment = ""
+	hostname := strings.ToLower(parsed.Hostname())
 	query := parsed.Query()
 	for key := range query {
-		if _, sensitive := sensitiveParameters[strings.ToLower(key)]; sensitive {
+		normalizedKey := strings.ToLower(key)
+		_, sensitive := sensitiveParameters[normalizedKey]
+		_, searchTerm := searchParameters[normalizedKey]
+		if sensitive || (searchTerm && isSearchEngineHost(hostname)) {
 			query[key] = []string{"[REDACTED]"}
 		}
 	}
 	parsed.RawQuery = query.Encode()
-	return parsed.String(), nil
+	return parsed.String(), hostname, nil
+}
+
+func isSearchEngineHost(hostname string) bool {
+	for _, domain := range searchEngineDomains {
+		if hostname == domain || strings.HasSuffix(hostname, "."+domain) {
+			return true
+		}
+	}
+	return false
 }
 
 func appendNavigationEvent(event navigationEvent) error {

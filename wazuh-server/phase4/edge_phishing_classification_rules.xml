@@ -5,11 +5,11 @@
     <description>Edge phishing classification result.</description>
   </rule>
 
-  <rule id="100111" level="12">
+  <rule id="100111" level="10">
     <if_sid>100110</if_sid>
     <field name="classification.status" type="pcre2">^malicious$</field>
     <field name="classification.source" type="pcre2">^phishtank$</field>
-    <description>PhishTank confirmed a phishing URL: $(classification.url) [source_event_id=$(classification.source_event_id)]</description>
+    <description>PhishTank confirmed a phishing host: $(classification.url_host) [source_event_id=$(classification.source_event_id)]</description>
     <mitre><id>T1566.002</id></mitre>
     <group>phishing,confirmed_phishing,phishtank,</group>
   </rule>
@@ -21,11 +21,20 @@
     <group>phishing_detection_error,</group>
   </rule>
 
-  <!-- Temporary pilot visibility for successful non-malicious lookups. -->
+  <!-- Temporary pilot visibility; the final configurable policy lowers this to level 0. -->
   <rule id="100113" level="3">
     <if_sid>100110</if_sid>
-    <field name="classification.status" type="pcre2">^(not_found|listed_inactive)$</field>
-    <description>URL was not confirmed as active phishing by PhishTank: $(classification.url) [source_event_id=$(classification.source_event_id)]</description>
+    <field name="classification.status" type="pcre2">^(not_found|listed_inactive|unlikely)$</field>
+    <description>Host was not confirmed as active phishing by PhishTank: $(classification.url_host) [source_event_id=$(classification.source_event_id)]</description>
     <group>phishing_reputation_checked,pilot_transport,</group>
+  </rule>
+
+  <rule id="100114" level="9">
+    <if_sid>100110</if_sid>
+    <field name="classification.status" type="pcre2">^suspicious$</field>
+    <field name="classification.source" type="pcre2">^ml$</field>
+    <description>ML detected a suspicious URL on $(classification.url_host) with score $(classification.score_percent)%.</description>
+    <mitre><id>T1566.002</id></mitre>
+    <group>phishing,ml_detection,</group>
   </rule>
 </group>

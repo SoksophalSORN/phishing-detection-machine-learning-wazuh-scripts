@@ -12,6 +12,16 @@ const SENSITIVE_QUERY_PARAMETERS = new Set([
   "token"
 ]);
 
+const SEARCH_QUERY_PARAMETERS = new Set(["p", "pq", "q", "query", "search", "text"]);
+const SEARCH_ENGINE_DOMAINS = ["bing.com", "google.com", "duckduckgo.com", "search.yahoo.com"];
+
+function isSearchEngineHost(hostname) {
+  const normalized = hostname.toLowerCase();
+  return SEARCH_ENGINE_DOMAINS.some(
+    (domain) => normalized === domain || normalized.endsWith(`.${domain}`)
+  );
+}
+
 export const DUPLICATE_WINDOW_MS = 2_000;
 
 export function normalizeUrl(rawUrl) {
@@ -31,7 +41,10 @@ export function normalizeUrl(rawUrl) {
   parsed.hash = "";
 
   for (const key of [...parsed.searchParams.keys()]) {
-    if (SENSITIVE_QUERY_PARAMETERS.has(key.toLowerCase())) {
+    const normalizedKey = key.toLowerCase();
+    const isSearchTerm = isSearchEngineHost(parsed.hostname) &&
+      SEARCH_QUERY_PARAMETERS.has(normalizedKey);
+    if (SENSITIVE_QUERY_PARAMETERS.has(normalizedKey) || isSearchTerm) {
       parsed.searchParams.set(key, "[REDACTED]");
     }
   }
@@ -58,6 +71,7 @@ export function createNavigationEvent(details, navigationKind, options = {}) {
     timestamp: now().toISOString(),
     browser: "edge",
     url,
+    url_host: new URL(url).hostname.toLowerCase(),
     tab_id: details.tabId,
     navigation_kind: navigationKind,
     transition_type: details.transitionType ?? "unknown",

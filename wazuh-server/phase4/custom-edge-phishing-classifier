@@ -67,8 +67,8 @@ def main(argv: list[str]) -> int:
         if not isinstance(alert, dict):
             raise ClassificationError("Wazuh alert root is not an object")
         agent = alert.get("agent") if isinstance(alert.get("agent"), dict) else None
-        navigation = validate_navigation_alert(alert)
         settings = load_settings(home / "etc" / "edge-phishing-classifier.json")
+        navigation = validate_navigation_alert(alert, settings.navigation_rule_id)
         cache = ResultCache(home / "var" / "edge-phishing-classifier" / "cache.sqlite3")
         try:
             event = classify_navigation(navigation, settings, cache)

@@ -1,10 +1,4 @@
-"""Structured Edge navigation classification for the Wazuh integration.
-
-The module intentionally uses only the Python standard library. The bundled
-legacy SVR model is not invoked here because it is not a calibrated
-probabilistic classifier; it will be integrated separately as an explicitly
-experimental fallback after compatibility and threshold validation.
-"""
+"""Structured PhishTank and optional URL-only ML classification for Wazuh."""
 
 from __future__ import annotations
 
@@ -34,6 +28,10 @@ class Settings:
     timeout_seconds: float = 8.0
     positive_cache_seconds: int = 21600
     negative_cache_seconds: int = 900
+    navigation_rule_id: str = "100100"
+    ml_enabled: bool = False
+    ml_model_path: str = "/var/ossec/etc/edge-url-model.joblib"
+    ml_threshold: float | None = None
 
     @classmethod
     def from_mapping(cls, value: dict[str, Any]) -> "Settings":
@@ -41,6 +39,25 @@ class Settings:
         parsed = urllib.parse.urlsplit(endpoint)
         if parsed.scheme != "https" or not parsed.hostname:
             raise ClassificationError("PhishTank endpoint must be an HTTPS URL")
+        ml = value.get("ml", {})
+        if not isinstance(ml, dict):
+            raise ClassificationError("ml configuration must be an object")
+        ml_enabled = ml.get("enabled", False)
+        if not isinstance(ml_enabled, bool):
+            raise ClassificationError("ml.enabled must be true or false")
+        threshold_value = ml.get("threshold")
+        try:
+            threshold = None if threshold_value is None else float(threshold_value)
+        except (TypeError, ValueError) as exc:
+            raise ClassificationError("ml.threshold must be a number or null") from exc
+        if threshold is not None and not 0.0 <= threshold <= 1.0:
+            raise ClassificationError("ml.threshold must be between 0 and 1")
+        model_path = str(ml.get("model_path", cls.ml_model_path))
+        if ml_enabled and not Path(model_path).is_absolute():
+            raise ClassificationError("ml.model_path must be absolute when ML is enabled")
+        navigation_rule_id = str(value.get("navigation_rule_id", cls.navigation_rule_id))
+        if not navigation_rule_id.isdigit() or not 100000 <= int(navigation_rule_id) <= 120000:
+            raise ClassificationError("navigation_rule_id must be between 100000 and 120000")
         return cls(
             endpoint=endpoint,
             api_key=str(value.get("api_key", "")),
@@ -48,6 +65,10 @@ class Settings:
             timeout_seconds=float(value.get("timeout_seconds", cls.timeout_seconds)),
             positive_cache_seconds=int(value.get("positive_cache_seconds", cls.positive_cache_seconds)),
             negative_cache_seconds=int(value.get("negative_cache_seconds", cls.negative_cache_seconds)),
+            navigation_rule_id=navigation_rule_id,
+            ml_enabled=ml_enabled,
+            ml_model_path=model_path,
+            ml_threshold=threshold,
         )
 
 
@@ -64,7 +85,7 @@ def load_settings(path: Path) -> Settings:
     return Settings.from_mapping(value)
 
 
-def validate_navigation_alert(alert: dict[str, Any]) -> dict[str, Any]:
+def validate_navigation_alert(alert: dict[str, Any], navigation_rule_id: str = "100100") -> dict[str, Any]:
     try:
         rule_id = str(alert["rule"]["id"])
         data = alert["data"]
@@ -72,8 +93,8 @@ def validate_navigation_alert(alert: dict[str, Any]) -> dict[str, Any]:
     except (KeyError, TypeError) as exc:
         raise ClassificationError("alert is missing required Wazuh fields") from exc
 
-    if rule_id != "100100":
-        raise ClassificationError("alert did not originate from navigation rule 100100")
+    if rule_id != navigation_rule_id:
+        raise ClassificationError(f"alert did not originate from navigation rule {navigation_rule_id}")
     if not isinstance(data, dict) or data.get("event_type") != "browser_navigation":
         raise ClassificationError("alert is not a browser_navigation event")
     if data.get("source") != "edge_extension" or data.get("browser") != "edge":
@@ -94,6 +115,7 @@ def validate_navigation_alert(alert: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "url": raw_url,
+        "url_host": parsed.hostname.lower(),
         "source_event_id": event_id,
         "source_alert_id": str(alert.get("id", "")),
         "source_rule_id": rule_id,
@@ -224,6 +246,7 @@ def classify_navigation(
     settings: Settings,
     cache: ResultCache,
     query: Callable[[str, Settings], dict[str, Any]] = query_phishtank,
+    ml_scorer: Callable[[str, str, float | None], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     started = time.monotonic()
     cached = cache.get(navigation["url"])
@@ -236,13 +259,25 @@ def classify_navigation(
         reputation = cached
         cache_hit = True
 
+    classification_source = "phishtank"
+    if not reputation["malicious"] and settings.ml_enabled:
+        if ml_scorer is None:
+            from url_ml import score_url
+            ml_scorer = score_url
+        ml_result = ml_scorer(navigation["url"], settings.ml_model_path, settings.ml_threshold)
+        reputation.update(ml_result)
+        reputation["status"] = "suspicious" if ml_result["score"] >= ml_result["threshold"] else "unlikely"
+        reputation["malicious"] = reputation["status"] == "suspicious"
+        classification_source = "ml"
+
     return {
         "integration": "edge-phishing-classifier",
         "schema_version": 1,
         "classification": {
             **reputation,
-            "source": "phishtank",
+            "source": classification_source,
             "url": navigation["url"],
+            "url_host": navigation["url_host"],
             "source_event_id": navigation["source_event_id"],
             "source_alert_id": navigation["source_alert_id"],
             "source_rule_id": navigation["source_rule_id"],
@@ -259,10 +294,11 @@ def error_result(navigation: dict[str, Any] | None, error: Exception) -> dict[st
         "classification": {
             "status": "error",
             "malicious": False,
-            "source": "phishtank",
+            "source": "classifier",
             "error_type": type(error).__name__,
             "error": str(error),
             "url": "" if navigation is None else navigation.get("url", ""),
+            "url_host": "" if navigation is None else navigation.get("url_host", ""),
             "source_event_id": "" if navigation is None else navigation.get("source_event_id", ""),
             "source_alert_id": "" if navigation is None else navigation.get("source_alert_id", ""),
             "source_rule_id": "" if navigation is None else navigation.get("source_rule_id", ""),

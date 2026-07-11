@@ -1,4 +1,9 @@
-# Phase 3: Wazuh Server Receipt and Pilot Alert
+# Wazuh Server Phishing Pipeline
+
+This directory covers Phase 3 transport verification, Phase 4 classification,
+and the final configurable rule policy.
+
+## Phase 3: Server Receipt and Pilot Alert
 
 Phase 3 proves that the Edge navigation event crosses the complete transport boundary:
 
@@ -118,7 +123,15 @@ After a real event passes `verify-phase3.sh`, install the structured PhishTank c
 sudo bash ./wazuh-server/install-phase4.sh -v
 ```
 
-An API key is optional but strongly recommended because PhishTank applies a much lower request limit without one. Copy and edit the provided configuration first if you have a key:
+An API key is optional but strongly recommended because PhishTank applies a
+lower request limit without one. The safest installation path prompts without
+putting the key in shell history:
+
+```bash
+sudo bash ./wazuh-server/install-phase4.sh -v --api-key-prompt
+```
+
+Alternatively, copy and edit the provided configuration:
 
 ```bash
 cp wazuh-server/phase4/config.json /tmp/edge-phishing-classifier.json
@@ -135,6 +148,140 @@ sudo bash ./wazuh-server/verify-phase4.sh \
   --wait 60
 ```
 
-Phase 4 currently treats PhishTank as the authoritative classification source. Successful negative lookups temporarily produce level-3 pilot alerts, confirmed phishing produces rule `100111` at level 12, and API/integration failures produce rule `100112` at level 5.
+The compatibility Phase 4 rules use level `10` for confirmed PhishTank URLs,
+level `9` for ML suspicion, level `5` for processing errors, and a temporary
+level `3` for negative/unknown pilot results. Run the configurable policy
+installer below to move to the final rule range and suppress those routine
+negative alerts at level `0`.
 
-The bundled model is an old 15-feature scikit-learn 1.0.2 `SVR`. It has no `predict_proba()` contract, so its output is not a phishing percentage. The legacy ML fallback remains disabled until its environment compatibility, feature extraction safety, threshold, and calibration are validated separately.
+## Install the Final Configurable Rule Policy
+
+The configurator scans active XML rules in `/var/ossec/etc/rules` and
+`/var/ossec/ruleset/rules`. XML comments do not reserve IDs. With no conflicts,
+the default policy is:
+
+| Purpose | Rule ID | Level |
+|---|---:|---:|
+| Edge URL observed | `100300` | `5` |
+| Classification base | `100301` | `0` |
+| Verified PhishTank URL | `100302` | `10` |
+| ML-suspicious URL | `100303` | `9` |
+| Classifier error | `100304` | `5` |
+| Negative/unknown result | `100305` | `0` |
+
+These levels preserve the original project's navigation, PhishTank, and ML
+severities while suppressing routine negative-result alerts. If any default ID
+is active elsewhere, the tool selects the first free contiguous range. It
+rejects collisions for explicitly supplied IDs.
+
+Preview generated XML without changing Wazuh:
+
+```bash
+python3 ./wazuh-server/configure-rules.py > /tmp/edge-phishing-policy.xml
+```
+
+Run the interactive wizard and install atomically:
+
+```bash
+sudo python3 ./wazuh-server/configure-rules.py --wizard --install -v
+```
+
+The wizard asks for the group/block name and every rule ID and alert level. A
+group may be a single Wazuh name or a comma-separated list such as
+`gmail,phishing`; each component may contain letters, digits, `_`, `.`, or `-`.
+The default is `browser_navigation,phishing_detection`. Press Enter at a prompt
+to accept the scanned default.
+
+The same policy can be installed non-interactively. For example:
+
+```bash
+sudo python3 ./wazuh-server/configure-rules.py --install -v \
+  --group-name browser_navigation,phishing \
+  --preferred-start 100300 \
+  --navigation-rule-id 100300 --navigation-level 5 \
+  --classification-base-rule-id 100301 --classification-base-level 0 \
+  --phishtank-rule-id 100302 --phishtank-level 10 \
+  --ml-rule-id 100303 --ml-level 9 \
+  --error-rule-id 100304 --error-level 5 \
+  --negative-rule-id 100305 --negative-level 0
+```
+
+Installation writes a unified rule file and a JSON policy manifest, backs up
+the managed Phase 3/4 rules and configuration, updates both the classifier's
+source rule and the `<integration>` trigger, runs three rule tests, then
+restarts the manager. A failed validation or restart restores the backup.
+
+## Safely Test a Confirmed-Phishing Alert
+
+Choose a URL that PhishTank currently marks as verified and active. Do not open
+it in Edge. Submit it directly to the installed classifier:
+
+```bash
+sudo python3 ./wazuh-server/test-phishing-path.py \
+  --url 'https://verified-test-url.example/path' --wait 60
+```
+
+The script creates a unique synthetic source event, sends the URL only to the
+classifier/PhishTank flow, and succeeds only when the resulting classification
+status is `malicious`. A `not_found` response is not proof that a URL is safe.
+
+## Optional Modern URL-Only ML Fallback
+
+The legacy scikit-learn 1.0.2 SVR is not used: it has no calibrated
+`predict_proba()` contract and its output is not a phishing percentage. The
+replacement extracts deterministic lexical/hostname features and performs no
+page download, DNS lookup, WHOIS lookup, or arbitrary outbound request.
+
+Train only from a reviewed CSV containing `url,label` columns (`0` benign,
+`1` phishing), using a dedicated environment:
+
+```bash
+python3 -m venv /tmp/edge-url-ml-venv
+/tmp/edge-url-ml-venv/bin/pip install joblib scikit-learn
+/tmp/edge-url-ml-venv/bin/python \
+  ./wazuh-server/phase4/train_url_model.py \
+  --input /path/to/reviewed-urls.csv \
+  --output /tmp/edge-url-model.joblib \
+  --model-version pilot-2026-01 --threshold 0.80
+sudo install -o root -g wazuh -m 0640 /tmp/edge-url-model.joblib \
+  /var/ossec/etc/edge-url-model.joblib
+```
+
+Install `joblib` and the matching scikit-learn runtime for the Python used by
+the Wazuh integration. Only load a trusted, root-controlled model artifact;
+joblib model files are executable deserialization formats. Then edit
+`/var/ossec/etc/edge-phishing-classifier.json`:
+
+```json
+"ml": {
+  "enabled": true,
+  "model_path": "/var/ossec/etc/edge-url-model.joblib",
+  "threshold": null
+}
+```
+
+`null` uses the threshold stored with the trained artifact. ML runs only when
+PhishTank has not confirmed the URL as active phishing. It emits `suspicious`
+or `unlikely`; it never changes a confirmed PhishTank result.
+
+## Privacy, Retention, and Legacy Cleanup
+
+The extension and native host remove fragments and embedded credentials,
+redact common secret query parameters, and redact search terms on common
+search-engine hosts. Rule descriptions contain `url_host`, not the complete
+URL. The normalized URL remains in structured event data because both
+PhishTank and the URL-only model require it.
+
+The endpoint JSONL rotates at 10 MiB and retains three rotated files. Wazuh
+server/index retention is controlled separately by the deployment's indexer
+and archival policies; set that retention according to the pilot's privacy and
+incident-response requirements.
+
+After the configurable pipeline passes the real and synthetic tests, run the
+read-only legacy audit and follow the cleanup guide:
+
+```bash
+sudo bash ./wazuh-server/audit-original-installation.sh
+```
+
+[Cleanup of the Original Sysmon/Command-Line Implementation](cleanup-original-implementation.md)

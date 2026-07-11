@@ -64,6 +64,7 @@ Set `PHISHING_DETECTION_LOG_FILE` to redirect output during controlled tests. Th
 
 - The host manifest accepts messages only from the configured extension ID.
 - The host independently validates the event schema, field sizes, timestamp, source, and HTTP/HTTPS URL.
-- URL credentials and fragments are removed, and common sensitive query values are redacted again by the host.
+- URL credentials and fragments are removed. Common sensitive query values and
+  search terms on common search-engine hosts are redacted again by the host.
 - Standard output is reserved exclusively for Edge native-messaging acknowledgements.
 - The pilot grants the installing Edge user modify access to the data directory so the host can rotate files. Production hardening should move writes into a dedicated Windows service if protection from the interactive user is required.

@@ -21,6 +21,13 @@ test("removes embedded credentials and redacts sensitive query values", () => {
   );
 });
 
+test("redacts search terms on known search engines", () => {
+  assert.equal(
+    normalizeUrl("https://www.bing.com/search?q=private+words&FORM=TEST&pq=private"),
+    "https://www.bing.com/search?q=%5BREDACTED%5D&FORM=TEST&pq=%5BREDACTED%5D"
+  );
+});
+
 test("rejects unsupported and malformed URLs", () => {
   assert.equal(normalizeUrl("edge://settings"), null);
   assert.equal(normalizeUrl("file:///C:/secret.txt"), null);
@@ -51,6 +58,7 @@ test("creates a versioned top-level navigation event", () => {
     timestamp: "2026-07-10T08:14:22.491Z",
     browser: "edge",
     url: "https://example.test/",
+    url_host: "example.test",
     tab_id: 7,
     navigation_kind: "committed",
     transition_type: "link",
