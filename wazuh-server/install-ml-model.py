@@ -79,6 +79,12 @@ def updated_config(
     return result
 
 
+def validation_score_message(result: dict, test_url: str) -> str:
+    if result.get("calibrated") is True and "score_percent" in result:
+        return f"Validation probability: {result['score_percent']}% for {test_url}"
+    return f"Validation raw score: {result['score']} for {test_url}"
+
+
 def atomic_json_write(path: Path, value: dict, uid: int, gid: int, mode: int) -> None:
     descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temporary = Path(temporary_name)
@@ -236,7 +242,7 @@ def main() -> int:
         print(f"Scaler: {scaler_destination}")
     print(f"Model version: {installed_validation['model_version']}")
     print(f"Effective threshold: {validation['threshold']}")
-    print(f"Validation score: {installed_validation['score_percent']}% for {args.test_url}")
+    print(validation_score_message(installed_validation, args.test_url))
     print(f"Backup: {backup}")
     print("Next: run test-ml-path.py with a controlled URL.")
     if args.verbose:

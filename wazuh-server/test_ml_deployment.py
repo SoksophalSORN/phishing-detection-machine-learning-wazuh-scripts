@@ -40,6 +40,14 @@ class MLDeploymentTests(unittest.TestCase):
         )
         self.assertTrue(updated["ml"]["legacy_network_features"])
 
+    def test_formats_legacy_score_without_claiming_a_percentage(self):
+        message = INSTALLER.validation_score_message(
+            {"score": 0.09, "calibrated": False}, "https://example.test/"
+        )
+        self.assertEqual(
+            message, "Validation raw score: 0.09 for https://example.test/"
+        )
+
     def test_uses_configured_policy_rules(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
