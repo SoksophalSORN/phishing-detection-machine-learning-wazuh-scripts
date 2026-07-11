@@ -169,8 +169,10 @@ sudo tail -n 100 /var/ossec/logs/ossec.log
 ### Archive legacy integration files
 
 Once the `<integration>` block is removed, the old script is no longer invoked
-by that configuration. The modern URL-only ML path does not reuse the old SVR
-model or scaler, but keep a backup until the replacement model is accepted:
+by that configuration. Keep the old SVR model and scaler available if the
+Phase 4 `legacy_svr` compatibility mode will be used. The compatibility
+installer copies them to root-controlled names under `/var/ossec/etc`; the
+original integration-directory copies can then be archived:
 
 ```text
 /var/ossec/integrations/custom-phishing-detection.py

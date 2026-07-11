@@ -10,6 +10,7 @@ POLICY_MANIFEST="$WAZUH_HOME/etc/edge-phishing-rule-policy.json"
 WRAPPER_DEST="$WAZUH_HOME/integrations/custom-edge-phishing-classifier"
 MODULE_DEST="$WAZUH_HOME/integrations/edge_phishing_classifier.py"
 ML_MODULE_DEST="$WAZUH_HOME/integrations/url_ml.py"
+LEGACY_ML_MODULE_DEST="$WAZUH_HOME/integrations/legacy_url_ml.py"
 CONFIG_DEST="$WAZUH_HOME/etc/edge-phishing-classifier.json"
 CACHE_DIR="$WAZUH_HOME/var/edge-phishing-classifier"
 OSSEC_CONFIG="$WAZUH_HOME/etc/ossec.conf"
@@ -62,8 +63,10 @@ required=(
   "$SOURCE/custom-edge-phishing-classifier"
   "$SOURCE/edge_phishing_classifier.py"
   "$SOURCE/url_ml.py"
+  "$SOURCE/legacy_url_ml.py"
   "$SOURCE/test_edge_phishing_classifier.py"
   "$SOURCE/test_url_ml.py"
+  "$SOURCE/test_legacy_url_ml.py"
   "$OSSEC_CONFIG" "$ANALYSISD" "$LOGTEST"
 )
 if [[ -e "$PIPELINE_RULES" || -e "$POLICY_MANIFEST" ]]; then
@@ -111,7 +114,7 @@ PY
 fi
 
 echo "[1/6] Running classifier unit tests..."
-(cd "$SOURCE" && python3 -m unittest -v test_edge_phishing_classifier.py test_url_ml.py)
+(cd "$SOURCE" && python3 -m unittest -v test_edge_phishing_classifier.py test_url_ml.py test_legacy_url_ml.py)
 if [[ -n "$config_source" ]]; then
   python3 -m json.tool "$config_source" >/dev/null
 fi
@@ -130,7 +133,7 @@ fi
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 backup_dir="$WAZUH_HOME/backup/edge-phase4-$timestamp"
 mkdir -p "$backup_dir"
-managed=("$WRAPPER_DEST" "$MODULE_DEST" "$ML_MODULE_DEST" "$CONFIG_DEST")
+managed=("$WRAPPER_DEST" "$MODULE_DEST" "$ML_MODULE_DEST" "$LEGACY_ML_MODULE_DEST" "$CONFIG_DEST")
 [[ "$unified_policy" -eq 0 ]] && managed+=("$RULE_DEST")
 for path in "${managed[@]}"; do
   [[ -e "$path" ]] && cp -a -- "$path" "$backup_dir/"
@@ -164,6 +167,7 @@ echo "[2/6] Installing integration files and rules..."
 install -o root -g wazuh -m 0750 "$SOURCE/custom-edge-phishing-classifier" "$WRAPPER_DEST"
 install -o root -g wazuh -m 0640 "$SOURCE/edge_phishing_classifier.py" "$MODULE_DEST"
 install -o root -g wazuh -m 0640 "$SOURCE/url_ml.py" "$ML_MODULE_DEST"
+install -o root -g wazuh -m 0640 "$SOURCE/legacy_url_ml.py" "$LEGACY_ML_MODULE_DEST"
 if [[ "$unified_policy" -eq 0 ]]; then
   install -o root -g wazuh -m 0640 "$SOURCE/edge_phishing_classification_rules.xml" "$RULE_DEST"
 else

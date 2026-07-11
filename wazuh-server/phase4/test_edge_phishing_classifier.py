@@ -54,6 +54,19 @@ class ClassifierTests(unittest.TestCase):
         with self.assertRaises(ClassificationError):
             Settings.from_mapping({"ml": {"enabled": True, "model_path": "model.joblib"}})
 
+    def test_accepts_legacy_model_and_scaler_paths(self):
+        settings = Settings.from_mapping({
+            "ml": {
+                "enabled": True,
+                "mode": "legacy_svr",
+                "model_path": "/var/ossec/etc/model.joblib",
+                "scaler_path": "/var/ossec/etc/scaler.joblib",
+                "threshold": 0.5,
+            }
+        })
+        self.assertEqual(settings.ml_mode, "legacy_svr")
+        self.assertEqual(settings.ml_scaler_path, "/var/ossec/etc/scaler.joblib")
+
     def test_normalizes_confirmed_phish(self):
         result = normalize_phishtank_result({
             "results": {

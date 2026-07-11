@@ -33,7 +33,7 @@
     <if_sid>100110</if_sid>
     <field name="classification.status" type="pcre2">^suspicious$</field>
     <field name="classification.source" type="pcre2">^ml$</field>
-    <description>ML detected a suspicious URL on $(classification.url_host) with score $(classification.score_percent)%.</description>
+    <description>ML detected a suspicious URL on $(classification.url_host) with score $(classification.score) [model=$(classification.model_kind), calibrated=$(classification.calibrated)].</description>
     <mitre><id>T1566.002</id></mitre>
     <group>phishing,ml_detection,</group>
   </rule>

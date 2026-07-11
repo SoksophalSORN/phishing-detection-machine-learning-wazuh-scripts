@@ -30,8 +30,14 @@ class Settings:
     negative_cache_seconds: int = 900
     navigation_rule_id: str = "100100"
     ml_enabled: bool = False
+    ml_mode: str = "modern"
     ml_model_path: str = "/var/ossec/etc/edge-url-model.joblib"
+    ml_scaler_path: str = ""
     ml_threshold: float | None = None
+    legacy_network_features: bool = True
+    legacy_timeout_seconds: float = 5.0
+    legacy_max_response_bytes: int = 1024 * 1024
+    legacy_max_redirects: int = 4
 
     @classmethod
     def from_mapping(cls, value: dict[str, Any]) -> "Settings":
@@ -45,6 +51,9 @@ class Settings:
         ml_enabled = ml.get("enabled", False)
         if not isinstance(ml_enabled, bool):
             raise ClassificationError("ml.enabled must be true or false")
+        ml_mode = str(ml.get("mode", "modern"))
+        if ml_mode not in {"modern", "legacy_svr"}:
+            raise ClassificationError("ml.mode must be modern or legacy_svr")
         threshold_value = ml.get("threshold")
         try:
             threshold = None if threshold_value is None else float(threshold_value)
@@ -55,6 +64,21 @@ class Settings:
         model_path = str(ml.get("model_path", cls.ml_model_path))
         if ml_enabled and not Path(model_path).is_absolute():
             raise ClassificationError("ml.model_path must be absolute when ML is enabled")
+        scaler_path = str(ml.get("scaler_path", ""))
+        if ml_enabled and ml_mode == "legacy_svr" and not Path(scaler_path).is_absolute():
+            raise ClassificationError("ml.scaler_path must be absolute in legacy_svr mode")
+        legacy_network_features = ml.get("legacy_network_features", True)
+        if not isinstance(legacy_network_features, bool):
+            raise ClassificationError("ml.legacy_network_features must be true or false")
+        legacy_timeout_seconds = float(ml.get("legacy_timeout_seconds", 5.0))
+        legacy_max_response_bytes = int(ml.get("legacy_max_response_bytes", 1024 * 1024))
+        legacy_max_redirects = int(ml.get("legacy_max_redirects", 4))
+        if not 0.1 <= legacy_timeout_seconds <= 30:
+            raise ClassificationError("ml.legacy_timeout_seconds must be between 0.1 and 30")
+        if not 1024 <= legacy_max_response_bytes <= 10 * 1024 * 1024:
+            raise ClassificationError("ml.legacy_max_response_bytes must be between 1024 and 10485760")
+        if not 0 <= legacy_max_redirects <= 10:
+            raise ClassificationError("ml.legacy_max_redirects must be between 0 and 10")
         navigation_rule_id = str(value.get("navigation_rule_id", cls.navigation_rule_id))
         if not navigation_rule_id.isdigit() or not 100000 <= int(navigation_rule_id) <= 120000:
             raise ClassificationError("navigation_rule_id must be between 100000 and 120000")
@@ -67,8 +91,14 @@ class Settings:
             negative_cache_seconds=int(value.get("negative_cache_seconds", cls.negative_cache_seconds)),
             navigation_rule_id=navigation_rule_id,
             ml_enabled=ml_enabled,
+            ml_mode=ml_mode,
             ml_model_path=model_path,
+            ml_scaler_path=scaler_path,
             ml_threshold=threshold,
+            legacy_network_features=legacy_network_features,
+            legacy_timeout_seconds=legacy_timeout_seconds,
+            legacy_max_response_bytes=legacy_max_response_bytes,
+            legacy_max_redirects=legacy_max_redirects,
         )
 
 
@@ -262,9 +292,25 @@ def classify_navigation(
     classification_source = "phishtank"
     if not reputation["malicious"] and settings.ml_enabled:
         if ml_scorer is None:
-            from url_ml import score_url
-            ml_scorer = score_url
-        ml_result = ml_scorer(navigation["url"], settings.ml_model_path, settings.ml_threshold)
+            if settings.ml_mode == "legacy_svr":
+                from legacy_url_ml import score_legacy_url
+
+                ml_result = score_legacy_url(
+                    navigation["url"], settings.ml_model_path, settings.ml_scaler_path,
+                    settings.ml_threshold, settings.legacy_network_features,
+                    settings.legacy_timeout_seconds, settings.legacy_max_response_bytes,
+                    settings.legacy_max_redirects,
+                )
+            else:
+                from url_ml import score_url
+
+                ml_result = score_url(
+                    navigation["url"], settings.ml_model_path, settings.ml_threshold
+                )
+        else:
+            ml_result = ml_scorer(
+                navigation["url"], settings.ml_model_path, settings.ml_threshold
+            )
         reputation.update(ml_result)
         reputation["status"] = "suspicious" if ml_result["score"] >= ml_result["threshold"] else "unlikely"
         reputation["malicious"] = reputation["status"] == "suspicious"

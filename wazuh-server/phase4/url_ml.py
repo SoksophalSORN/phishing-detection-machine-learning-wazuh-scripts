@@ -90,4 +90,7 @@ def score_url(raw_url: str, model_path: str, threshold_override: float | None = 
         "score_percent": round(probability * 100, 2),
         "threshold": threshold,
         "model_version": model_version,
+        "model_kind": "calibrated_url_classifier",
+        "calibrated": True,
+        "compatibility_mode": False,
     }

@@ -104,6 +104,24 @@ def scan_used_ids(home: Path) -> tuple[set[int], dict[int, Path]]:
     return used, locations
 
 
+def apply_installed_policy_defaults(
+    args: argparse.Namespace, home: Path, command_line: list[str]
+) -> None:
+    manifest = home / "etc" / "edge-phishing-rule-policy.json"
+    if not manifest.exists() or "--preferred-start" in command_line:
+        return
+    try:
+        installed = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"installed rule policy cannot be read: {manifest}") from exc
+    if not isinstance(installed, dict):
+        raise ValueError(f"installed rule policy is not an object: {manifest}")
+    for field in fields(Policy):
+        option = "--" + field.name.replace("_", "-")
+        if option not in command_line and field.name in installed:
+            setattr(args, field.name, installed[field.name])
+
+
 def validate_rule_id(rule_id: int) -> None:
     if not CUSTOM_MIN <= rule_id <= CUSTOM_MAX:
         raise ValueError(f"rule ID {rule_id} is outside {CUSTOM_MIN}-{CUSTOM_MAX}")
@@ -235,7 +253,7 @@ def generate_xml(policy: Policy) -> str:
     <if_sid>{policy.classification_base_rule_id}</if_sid>
     <field name="classification.status" type="pcre2">^suspicious$</field>
     <field name="classification.source" type="pcre2">^ml$</field>
-    <description>ML detected a suspicious URL on $(classification.url_host) with score $(classification.score_percent)%.</description>
+    <description>ML detected a suspicious URL on $(classification.url_host) with score $(classification.score) [model=$(classification.model_kind), calibrated=$(classification.calibrated)].</description>
     <mitre><id>T1566.002</id></mitre>
     <group>phishing,ml_detection,</group>
   </rule>
@@ -305,7 +323,7 @@ def install(policy: Policy, xml: str, home: Path, verbose: bool) -> None:
             f"{policy.phishtank_rule_id}:{policy.phishtank_level}:json",
         ),
         (
-            json.dumps({"integration": "edge-phishing-classifier", "classification": {"status": "suspicious", "source": "ml", "url_host": "example.test", "score": 0.9, "score_percent": 90}}),
+            json.dumps({"integration": "edge-phishing-classifier", "classification": {"status": "suspicious", "source": "ml", "url_host": "example.test", "score": 0.9, "model_kind": "legacy_svr", "calibrated": False}}),
             f"{policy.ml_rule_id}:{policy.ml_level}:json",
         ),
     ]
@@ -354,6 +372,7 @@ def install(policy: Policy, xml: str, home: Path, verbose: bool) -> None:
 def main() -> int:
     args = parser().parse_args()
     home = Path(args.wazuh_home)
+    apply_installed_policy_defaults(args, home, sys.argv[1:])
     used, locations = scan_used_ids(home)
     allocated = allocate_ids(args, used, locations)
     if args.verbose:

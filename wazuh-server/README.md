@@ -227,15 +227,106 @@ The script creates a unique synthetic source event, sends the URL only to the
 classifier/PhishTank flow, and succeeds only when the resulting classification
 status is `malicious`. A `not_found` response is not proof that a URL is safe.
 
-## Optional Modern URL-Only ML Fallback
+## Original Model Compatibility Mode
 
-The legacy scikit-learn 1.0.2 SVR is not used: it has no calibrated
-`predict_proba()` contract and its output is not a phishing percentage. The
-replacement extracts deterministic lexical/hostname features and performs no
-page download, DNS lookup, WHOIS lookup, or arbitrary outbound request.
+The original root-level `model.joblib` and `scaler.joblib` can be connected to
+the modern Edge event pipeline without retraining. The compatibility adapter:
 
-Train only from a reviewed CSV containing `url,label` columns (`0` benign,
-`1` phishing), using a dedicated environment:
+- Recreates the original 15-feature order.
+- Applies the original `StandardScaler` before the original RBF SVR.
+- Treats the absolute SVR regression output as an uncalibrated raw score.
+- Defaults to a raw-score threshold of `0.5`.
+- Marks every result as `model_kind: legacy_svr`, `calibrated: false`, and
+  `compatibility_mode: true`.
+- Preserves the configured level-9 ML Wazuh rule.
+
+The original model was serialized by scikit-learn 1.0.2. The Python runtime
+used by the Wazuh integration must have compatible NumPy, joblib and
+scikit-learn packages. Guarded network feature collection additionally needs
+the `python-whois` module.
+
+First rerun Phase 4 after copying the updated repository so the legacy adapter
+is installed under `/var/ossec/integrations`:
+
+```bash
+sudo bash ./wazuh-server/install-phase4.sh -v
+```
+
+Then install the two original artifacts together:
+
+```bash
+sudo python3 ./wazuh-server/install-ml-model.py \
+  --model ./model.joblib \
+  --legacy-scaler ./scaler.joblib \
+  --threshold 0.5 -v
+```
+
+Installation validates both artifacts before changing Wazuh, copies them to
+root-controlled files under `/var/ossec/etc`, enables `legacy_svr` mode,
+restarts the manager, and rolls back on failure.
+
+Refresh the unified ML rule description while preserving the IDs and levels
+already stored in the installed policy manifest:
+
+```bash
+sudo python3 ./wazuh-server/configure-rules.py --install -v
+```
+
+When a policy manifest exists, omitted options reuse its values. Supplying
+`--preferred-start` explicitly requests a fresh automatic allocation instead.
+
+By default the adapter attempts the original WHOIS and page-derived features.
+It restricts page requests to public HTTP/HTTPS destinations, rejects embedded
+credentials and non-public IP addresses, rechecks redirects, limits redirects
+and response size, and enforces timeouts. These controls reduce but do not
+eliminate the risks of manager-side URL retrieval.
+
+To avoid all WHOIS/page requests and use the original extractor's failure
+defaults for those seven features, install with:
+
+```bash
+sudo python3 ./wazuh-server/install-ml-model.py \
+  --model ./model.joblib \
+  --legacy-scaler ./scaler.joblib \
+  --threshold 0.5 \
+  --disable-legacy-network-features -v
+```
+
+Test the installed scaler, SVR, forced PhishTank-negative fallback, and chosen
+Wazuh rule without opening the target or making a network request:
+
+```bash
+sudo python3 ./wazuh-server/test-ml-path.py \
+  --url 'https://controlled-test.example/login' -v
+```
+
+The first run reports whether the raw score is `suspicious` or `unlikely`.
+After observing the expected result, add `--expect suspicious` or
+`--expect unlikely` for repeatable acceptance testing.
+
+The score must not be interpreted as a percentage or calibrated probability.
+The original training extractor made its IP-address feature effectively
+constant, and unavailable WHOIS/page features fall back to suspicious defaults;
+these limitations cannot be corrected without retraining.
+
+## Alternative Modern URL-Only ML Model
+
+The repository also supports a new calibrated URL-only model that performs no
+page download, DNS lookup, WHOIS lookup, or arbitrary outbound request. This is
+optional and is not required when using the original compatibility mode.
+
+The repository intentionally does not contain a replacement training dataset.
+To use the optional modern mode, prepare a reviewed
+CSV containing `url,label` columns (`0` benign, `1` phishing), for example:
+
+```csv
+url,label
+https://known-benign.example/,0
+https://reviewed-phishing.example/login,1
+```
+
+Train in an environment whose joblib and scikit-learn versions are also
+available to the `python3` runtime used by the Wazuh integration:
 
 ```bash
 python3 -m venv /tmp/edge-url-ml-venv
@@ -245,14 +336,23 @@ python3 -m venv /tmp/edge-url-ml-venv
   --input /path/to/reviewed-urls.csv \
   --output /tmp/edge-url-model.joblib \
   --model-version pilot-2026-01 --threshold 0.80
-sudo install -o root -g wazuh -m 0640 /tmp/edge-url-model.joblib \
-  /var/ossec/etc/edge-url-model.joblib
 ```
 
 Install `joblib` and the matching scikit-learn runtime for the Python used by
 the Wazuh integration. Only load a trusted, root-controlled model artifact;
-joblib model files are executable deserialization formats. Then edit
-`/var/ossec/etc/edge-phishing-classifier.json`:
+joblib model files are executable deserialization formats. The model installer
+loads the artifact with that runtime, checks its format, feature schema,
+version, probability and threshold, installs it as `root:wazuh` mode `0640`,
+enables ML atomically, restarts Wazuh, and rolls back on failure:
+
+```bash
+sudo python3 ./wazuh-server/install-ml-model.py \
+  --model /tmp/edge-url-model.joblib -v
+```
+
+To override the trained threshold, add `--threshold 0.85`. Omitting the option
+stores `null` in `/var/ossec/etc/edge-phishing-classifier.json` and uses the
+threshold bundled with the model:
 
 ```json
 "ml": {
@@ -265,6 +365,20 @@ joblib model files are executable deserialization formats. Then edit
 `null` uses the threshold stored with the trained artifact. ML runs only when
 PhishTank has not confirmed the URL as active phishing. It emits `suspicious`
 or `unlikely`; it never changes a confirmed PhishTank result.
+
+Test the installed modern artifact, forced PhishTank-negative fallback, and
+the configured Wazuh ML/negative rule without opening the target or making any
+network request:
+
+```bash
+sudo python3 ./wazuh-server/test-ml-path.py \
+  --url 'https://controlled-test.example/login' -v
+```
+
+The command reports the actual model score and status. After observing it, use
+`--expect suspicious` or `--expect unlikely` in repeatable acceptance tests.
+This isolated test proves the fallback and rule; a subsequent controlled Edge
+navigation proves the complete browser-to-ML path.
 
 ## Privacy, Retention, and Legacy Cleanup
 

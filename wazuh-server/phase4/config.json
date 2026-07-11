@@ -8,7 +8,13 @@
   "navigation_rule_id": "100100",
   "ml": {
     "enabled": false,
+    "mode": "modern",
     "model_path": "/var/ossec/etc/edge-url-model.joblib",
-    "threshold": null
+    "scaler_path": "",
+    "threshold": null,
+    "legacy_network_features": true,
+    "legacy_timeout_seconds": 5,
+    "legacy_max_response_bytes": 1048576,
+    "legacy_max_redirects": 4
   }
 }

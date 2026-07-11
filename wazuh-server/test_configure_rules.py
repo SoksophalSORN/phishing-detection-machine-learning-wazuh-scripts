@@ -74,6 +74,26 @@ class RuleConfigurationTests(unittest.TestCase):
         root = ET.fromstring(MODULE.generate_xml(policy))
         self.assertEqual(root.attrib["name"], "browser_navigation,phishing,")
 
+    def test_reuses_installed_policy_without_overriding_cli_options(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            manifest = home / "etc" / "edge-phishing-rule-policy.json"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text(
+                '{"group_name":"installed_group","navigation_rule_id":100302,'
+                '"navigation_level":5,"classification_base_rule_id":100310,'
+                '"classification_base_level":0,"phishtank_rule_id":100311,'
+                '"phishtank_level":10,"ml_rule_id":100312,"ml_level":9,'
+                '"error_rule_id":100313,"error_level":5,'
+                '"negative_rule_id":100314,"negative_level":0}',
+                encoding="utf-8",
+            )
+            args = self.arguments(group_name="cli_group")
+            MODULE.apply_installed_policy_defaults(args, home, ["--group-name", "cli_group"])
+        self.assertEqual(args.group_name, "cli_group")
+        self.assertEqual(args.navigation_rule_id, 100302)
+        self.assertEqual(args.phishtank_rule_id, 100311)
+
 
 if __name__ == "__main__":
     unittest.main()
