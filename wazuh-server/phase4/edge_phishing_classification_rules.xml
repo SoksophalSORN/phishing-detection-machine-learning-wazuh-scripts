@@ -37,4 +37,13 @@
     <mitre><id>T1566.002</id></mitre>
     <group>phishing,ml_detection,</group>
   </rule>
+
+  <rule id="100115" level="7">
+    <if_sid>100110</if_sid>
+    <field name="classification.status" type="pcre2">^review$</field>
+    <field name="classification.source" type="pcre2">^ml$</field>
+    <description>ML marked a URL on $(classification.url_host) for review with score $(classification.score) [review_threshold=$(classification.review_threshold), suspicious_threshold=$(classification.threshold)].</description>
+    <mitre><id>T1566.002</id></mitre>
+    <group>phishing,ml_review,</group>
+  </rule>
 </group>

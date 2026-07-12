@@ -137,7 +137,7 @@ PY
 fi
 
 if [[ "$unified_policy" -eq 0 ]]; then
-  for rule_id in 100110 100111 100112 100113 100114; do
+  for rule_id in 100110 100111 100112 100113 100114 100115; do
     conflicts="$(grep -RIl --include='*.xml' "<rule id=\"$rule_id\"" "$WAZUH_HOME/etc/rules" 2>/dev/null || true)"
     while IFS= read -r conflict; do
       [[ -z "$conflict" || "$conflict" == "$RULE_DEST" ]] && continue

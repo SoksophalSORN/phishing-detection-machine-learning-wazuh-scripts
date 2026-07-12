@@ -28,6 +28,9 @@ class CompleteInstallerTests(unittest.TestCase):
         self.assertIn("--web-risk-threat-type", completed.stdout)
         self.assertIn("--web-risk-monthly-limit", completed.stdout)
         self.assertIn("--web-risk-negative-cache-seconds", completed.stdout)
+        self.assertIn("--review-threshold", completed.stdout)
+        self.assertIn("--review-rule-id", completed.stdout)
+        self.assertIn("--review-level", completed.stdout)
 
     def test_unknown_option_is_rejected_without_installing(self):
         completed = subprocess.run(

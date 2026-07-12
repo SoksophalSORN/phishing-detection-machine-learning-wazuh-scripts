@@ -148,9 +148,16 @@ The compatibility adapter:
 - Preserves the original 15-feature ordering.
 - Applies the original `StandardScaler` before the RBF SVR.
 - Treats the SVR output as an uncalibrated raw score, not a probability.
-- Uses a default threshold of `0.5` unless overridden.
+- Uses a default suspicious threshold of `0.5` unless overridden.
+- Sends scores from the default `0.07` review threshold up to (but not
+  including) the suspicious threshold to a level-7 review rule.
 - Labels output with `model_kind: legacy_svr`, `calibrated: false`, and
   `compatibility_mode: true`.
+
+Set the two bands independently with `--review-threshold` and `--threshold`.
+The review threshold must be lower than the suspicious threshold. A review
+result is not declared malicious; it is an intermediate alert for analyst
+triage.
 
 The complete installer disables legacy WHOIS and page-derived network features
 by default. This avoids arbitrary manager-side retrieval. Enable the guarded
@@ -197,6 +204,7 @@ With no conflicts, the complete installer allocates:
 | ML-suspicious result | `100303` | 9 | 9 |
 | Classifier/provider error | `100304` | 5 | 5 |
 | Negative or unlikely result | `100305` | 3 | 0 |
+| ML review-band result | `100306` | 7 | 7 |
 
 If those IDs are already active, the configurator selects the first free
 contiguous range in Wazuh’s custom interval. Explicit collisions are rejected.
@@ -221,6 +229,7 @@ Non-interactive policy options include:
 --classification-base-rule-id ID --classification-base-level LEVEL
 --reputation-rule-id ID          --reputation-level LEVEL
 --ml-rule-id ID                  --ml-level LEVEL
+--review-rule-id ID              --review-level LEVEL
 --error-rule-id ID               --error-level LEVEL
 --negative-rule-id ID            --negative-level LEVEL
 ```
@@ -283,8 +292,8 @@ sudo python3 ./wazuh-server/verification/verify-ml-integration.py \
   -v
 ```
 
-After observing the installed model’s result, add `--expect suspicious` or
-`--expect unlikely` for repeatable acceptance.
+After observing the installed model’s result, add `--expect suspicious`,
+`--expect review`, or `--expect unlikely` for repeatable acceptance.
 
 ### 4. Real harmless Edge event
 
@@ -322,7 +331,7 @@ sudo bash ./wazuh-server/install-wazuh-server.sh \
 For PhishTank, select `--reputation-provider phishtank`. An installed Web Risk
 key is retained when no key prompt/file option is supplied. Production changes
 only routine negative/unknown visibility to level 0; confirmed reputation,
-ML-suspicious, and error levels remain active.
+ML-suspicious, ML-review (level 7), and error levels remain active.
 
 The deployment profile and selected provider are recorded in:
 

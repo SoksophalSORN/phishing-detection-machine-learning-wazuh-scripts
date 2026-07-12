@@ -26,6 +26,7 @@ class MLDeploymentTests(unittest.TestCase):
         self.assertEqual(updated["endpoint"], original["endpoint"])
         self.assertTrue(updated["ml"]["enabled"])
         self.assertEqual(updated["ml"]["threshold"], None)
+        self.assertEqual(updated["ml"]["review_threshold"], 0.07)
 
     def test_configures_original_model_and_scaler_compatibility_mode(self):
         updated = INSTALLER.updated_config(
@@ -33,12 +34,14 @@ class MLDeploymentTests(unittest.TestCase):
             mode="legacy_svr",
             scaler_path=Path("/var/ossec/etc/edge-legacy-scaler.joblib"),
             legacy_network_features=True,
+            review_threshold=0.07,
         )
         self.assertEqual(updated["ml"]["mode"], "legacy_svr")
         self.assertEqual(
             updated["ml"]["scaler_path"], "/var/ossec/etc/edge-legacy-scaler.joblib"
         )
         self.assertTrue(updated["ml"]["legacy_network_features"])
+        self.assertEqual(updated["ml"]["review_threshold"], 0.07)
 
     def test_formats_legacy_score_without_claiming_a_percentage(self):
         message = INSTALLER.validation_score_message(
@@ -54,10 +57,12 @@ class MLDeploymentTests(unittest.TestCase):
             policy = home / "etc" / "edge-phishing-rule-policy.json"
             policy.parent.mkdir(parents=True)
             policy.write_text(
-                '{"ml_rule_id":100312,"ml_level":9,"negative_rule_id":100314,"negative_level":0}',
+                '{"ml_rule_id":100312,"ml_level":9,"review_rule_id":100315,'
+                '"review_level":7,"negative_rule_id":100314,"negative_level":0}',
                 encoding="utf-8",
             )
             self.assertEqual(VERIFIER.expected_rule(home, "suspicious"), (100312, 9))
+            self.assertEqual(VERIFIER.expected_rule(home, "review"), (100315, 7))
             self.assertEqual(VERIFIER.expected_rule(home, "unlikely"), (100314, 0))
 
 

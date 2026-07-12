@@ -43,6 +43,7 @@ class Settings:
     ml_model_path: str = "/var/ossec/etc/edge-url-model.joblib"
     ml_scaler_path: str = ""
     ml_threshold: float | None = None
+    ml_review_threshold: float = 0.07
     legacy_network_features: bool = True
     legacy_timeout_seconds: float = 5.0
     legacy_max_response_bytes: int = 1024 * 1024
@@ -112,6 +113,14 @@ class Settings:
             raise ClassificationError("ml.threshold must be a number or null") from exc
         if threshold is not None and not 0.0 <= threshold <= 1.0:
             raise ClassificationError("ml.threshold must be between 0 and 1")
+        try:
+            review_threshold = float(ml.get("review_threshold", 0.07))
+        except (TypeError, ValueError) as exc:
+            raise ClassificationError("ml.review_threshold must be a number") from exc
+        if not 0.0 <= review_threshold <= 1.0:
+            raise ClassificationError("ml.review_threshold must be between 0 and 1")
+        if threshold is not None and review_threshold >= threshold:
+            raise ClassificationError("ml.review_threshold must be lower than ml.threshold")
         model_path = str(ml.get("model_path", cls.ml_model_path))
         if ml_enabled and not Path(model_path).is_absolute():
             raise ClassificationError("ml.model_path must be absolute when ML is enabled")
@@ -154,6 +163,7 @@ class Settings:
             ml_model_path=model_path,
             ml_scaler_path=scaler_path,
             ml_threshold=threshold,
+            ml_review_threshold=review_threshold,
             legacy_network_features=legacy_network_features,
             legacy_timeout_seconds=legacy_timeout_seconds,
             legacy_max_response_bytes=legacy_max_response_bytes,
@@ -439,6 +449,21 @@ def classify_navigation(
     started = time.monotonic()
     provider = settings.reputation_provider
 
+    def status_for_ml(ml_result: dict[str, Any]) -> str:
+        score = float(ml_result["score"])
+        suspicious_threshold = float(ml_result["threshold"])
+        review_threshold = settings.ml_review_threshold
+        if not 0.0 <= review_threshold < suspicious_threshold:
+            raise ClassificationError(
+                "ml.review_threshold must be lower than the effective ML threshold"
+            )
+        ml_result["review_threshold"] = review_threshold
+        if score >= suspicious_threshold:
+            return "suspicious"
+        if score >= review_threshold:
+            return "review"
+        return "unlikely"
+
     def score_with_ml() -> dict[str, Any]:
         if ml_scorer is None:
             if settings.ml_mode == "legacy_svr":
@@ -504,12 +529,12 @@ def classify_navigation(
         if not settings.ml_enabled:
             raise ClassificationError(reputation_error)
         ml_result = score_with_ml()
-        ml_status = "suspicious" if ml_result["score"] >= ml_result["threshold"] else "unlikely"
-        if ml_status == "suspicious":
+        ml_status = status_for_ml(ml_result)
+        if ml_status in {"suspicious", "review"}:
             reputation = {
                 **ml_result,
-                "status": "suspicious",
-                "malicious": True,
+                "status": ml_status,
+                "malicious": ml_status == "suspicious",
                 "source": "ml",
                 "degraded": True,
                 "reputation_provider": provider,
@@ -533,8 +558,9 @@ def classify_navigation(
         classification_source = str(reputation.get("provider", provider))
         if not reputation.get("malicious", False) and settings.ml_enabled:
             ml_result = score_with_ml()
+            ml_status = status_for_ml(ml_result)
             reputation.update(ml_result)
-            reputation["status"] = "suspicious" if ml_result["score"] >= ml_result["threshold"] else "unlikely"
+            reputation["status"] = ml_status
             reputation["malicious"] = reputation["status"] == "suspicious"
             classification_source = "ml"
 

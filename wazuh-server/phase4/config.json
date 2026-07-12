@@ -17,6 +17,7 @@
     "model_path": "/var/ossec/etc/edge-url-model.joblib",
     "scaler_path": "",
     "threshold": null,
+    "review_threshold": 0.07,
     "legacy_network_features": true,
     "legacy_timeout_seconds": 5,
     "legacy_max_response_bytes": 1048576,

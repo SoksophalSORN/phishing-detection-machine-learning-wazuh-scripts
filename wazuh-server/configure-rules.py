@@ -41,6 +41,8 @@ class Policy:
     phishtank_level: int = 10
     ml_rule_id: int = 0
     ml_level: int = 9
+    review_rule_id: int = 0
+    review_level: int = 7
     error_rule_id: int = 0
     error_level: int = 5
     negative_rule_id: int = 0
@@ -54,6 +56,7 @@ RULE_ROLES = [
     "ml_rule_id",
     "error_rule_id",
     "negative_rule_id",
+    "review_rule_id",
 ]
 
 
@@ -91,6 +94,7 @@ def parser() -> argparse.ArgumentParser:
         help="provider-neutral alias for --phishtank-level",
     )
     result.add_argument("--ml-level", type=int, default=9, help="ML-suspicious alert level")
+    result.add_argument("--review-level", type=int, default=7, help="ML review-band alert level")
     result.add_argument("--error-level", type=int, default=5, help="classifier failure alert level")
     result.add_argument("--negative-level", type=int, default=0, help="negative/unknown result level")
     result.add_argument("-v", "--verbose", action="store_true")
@@ -129,9 +133,13 @@ def apply_installed_policy_defaults(
         raise ValueError(f"installed rule policy cannot be read: {manifest}") from exc
     if not isinstance(installed, dict):
         raise ValueError(f"installed rule policy is not an object: {manifest}")
+    aliases = {
+        "phishtank_rule_id": {"--phishtank-rule-id", "--reputation-rule-id"},
+        "phishtank_level": {"--phishtank-level", "--reputation-level"},
+    }
     for field in fields(Policy):
-        option = "--" + field.name.replace("_", "-")
-        if option not in command_line and field.name in installed:
+        options = aliases.get(field.name, {"--" + field.name.replace("_", "-")})
+        if not options.intersection(command_line) and field.name in installed:
             setattr(args, field.name, installed[field.name])
 
 
@@ -204,6 +212,7 @@ def run_wizard(args: argparse.Namespace, allocated: dict[str, int]) -> None:
         "classification_base": "Classification base",
         "phishtank": "Verified reputation result",
         "ml": "ML suspicious result",
+        "review": "ML review-band result",
         "error": "Classification error",
         "negative": "Negative/unknown result",
     }
@@ -285,6 +294,15 @@ def generate_xml(policy: Policy) -> str:
     <group>phishing,ml_detection,</group>
   </rule>
 
+  <rule id="{policy.review_rule_id}" level="{policy.review_level}">
+    <if_sid>{policy.classification_base_rule_id}</if_sid>
+    <field name="classification.status" type="pcre2">^review$</field>
+    <field name="classification.source" type="pcre2">^ml$</field>
+    <description>ML marked a URL on $(classification.url_host) for review with score $(classification.score) [review_threshold=$(classification.review_threshold), suspicious_threshold=$(classification.threshold)].</description>
+    <mitre><id>T1566.002</id></mitre>
+    <group>phishing,ml_review,</group>
+  </rule>
+
   <rule id="{policy.error_rule_id}" level="{policy.error_level}">
     <if_sid>{policy.classification_base_rule_id}</if_sid>
     <field name="classification.status" type="pcre2">^error$</field>
@@ -352,6 +370,10 @@ def install(policy: Policy, xml: str, home: Path, verbose: bool) -> None:
         (
             json.dumps({"integration": "edge-phishing-classifier", "classification": {"status": "suspicious", "source": "ml", "url_host": "example.test", "score": 0.9, "model_kind": "legacy_svr", "calibrated": False}}),
             f"{policy.ml_rule_id}:{policy.ml_level}:json",
+        ),
+        (
+            json.dumps({"integration": "edge-phishing-classifier", "classification": {"status": "review", "source": "ml", "url_host": "example.test", "score": 0.08, "review_threshold": 0.07, "threshold": 0.1}}),
+            f"{policy.review_rule_id}:{policy.review_level}:json",
         ),
     ]
     try:

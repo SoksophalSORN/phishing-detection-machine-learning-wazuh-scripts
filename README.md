@@ -8,7 +8,7 @@ Google Web Risk and PhishTank are supported as alternative reputation
 providers. When a URL is not confirmed by the selected provider, the manager
 can pass it to the included legacy machine-learning compatibility layer. Wazuh
 then produces separate alerts for confirmed reputation matches, ML suspicion,
-and processing failures.
+level-7 ML review results, and processing failures.
 
 This is a detection and demonstration system. It reports navigation after it
 occurs; it does not block a page from loading.
@@ -62,6 +62,11 @@ Before beginning, prepare:
 
 Use staging first. It makes routine negative results visible at Wazuh level 3;
 production suppresses them at level 0.
+
+The ML fallback uses two thresholds. Scores at or above the suspicious
+threshold are suspicious; scores from `0.07` up to that threshold generate a
+level-7 review alert; lower scores remain unlikely. The review band is meant
+for analyst triage and does not claim that the URL is malicious.
 
 ## Part 1: Install the Windows Endpoint
 

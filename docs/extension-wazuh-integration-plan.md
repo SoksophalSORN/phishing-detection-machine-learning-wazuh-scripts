@@ -206,6 +206,7 @@ Create distinct Wazuh rules for:
 - Browser navigation observed.
 - Confirmed PhishTank match.
 - ML score above the alert threshold.
+- ML score inside the analyst-review band.
 - Classification timeout or internal failure.
 
 Acceptance criteria:
@@ -267,7 +268,7 @@ Provide a synthetic event injector that submits a user-supplied, currently verif
 
 ### 2. Reduce Pilot Noise
 
-Successful negative reputation lookups should default to rule level `0` after transport testing. Browser-navigation observability remains configurable; its default level is `5` to preserve the original project policy. Verified PhishTank detections default to level `10`, and ML detections default to level `9`.
+Successful negative reputation lookups should default to rule level `0` after transport testing. Browser-navigation observability remains configurable; its default level is `5` to preserve the original project policy. Verified PhishTank detections default to level `10`, ML suspicious detections default to level `9`, and the intermediate ML review band defaults to level `7`.
 
 ### 3. Minimize URL Data Exposure
 
@@ -297,7 +298,8 @@ Replace the legacy scikit-learn 1.0.2 SVR with a versioned, URL-only probabilist
 - Store the feature schema, training metadata, model version, and decision threshold with the artifact.
 - Invoke ML only when PhishTank does not confirm active phishing.
 - Default the suspicious threshold from the trained artifact, while allowing an administrator override.
-- Emit distinct structured results for confirmed reputation, ML suspicion, benign/unknown, and processing failure.
+- Use a separately configurable lower review threshold, default `0.07`; scores from that value up to the suspicious threshold produce `review`, not `suspicious`.
+- Emit distinct structured results for confirmed reputation, ML suspicion, ML review, benign/unknown, and processing failure.
 - Validate and install only a trusted, versioned model through an atomic installer with rollback.
 - Provide an offline fallback test that forces a PhishTank-negative result, exercises the installed model, and validates the selected Wazuh rule without opening or requesting the target URL.
 
@@ -313,6 +315,7 @@ The rule installer must support both CLI and wizard modes. Administrators can co
 - Classification base rule ID, default level `0`.
 - Verified PhishTank rule ID and level, default level `10`.
 - ML-detection rule ID and level, default level `9`.
+- ML-review rule ID and level, default level `7`.
 - Classification-error rule ID and level, default level `5`.
 - Negative-result rule ID and level, default level `0`.
 

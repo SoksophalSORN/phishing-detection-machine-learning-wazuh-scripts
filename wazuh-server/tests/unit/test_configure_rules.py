@@ -25,6 +25,7 @@ class RuleConfigurationTests(unittest.TestCase):
             "classification_base_level": 0,
             "phishtank_level": 10,
             "ml_level": 9,
+            "review_level": 7,
             "error_level": 5,
             "negative_level": 0,
         }
@@ -48,11 +49,11 @@ class RuleConfigurationTests(unittest.TestCase):
 
     def test_prefers_contiguous_range_from_100300(self):
         allocated = MODULE.allocate_ids(self.arguments(), set(), {})
-        self.assertEqual(list(allocated.values()), list(range(100300, 100306)))
+        self.assertEqual(list(allocated.values()), list(range(100300, 100307)))
 
     def test_moves_to_next_free_contiguous_range(self):
         allocated = MODULE.allocate_ids(self.arguments(), {100302}, {100302: Path("rules.xml")})
-        self.assertEqual(list(allocated.values()), list(range(100303, 100309)))
+        self.assertEqual(list(allocated.values()), list(range(100303, 100310)))
 
     def test_preserves_original_severity_defaults(self):
         args = self.arguments()
@@ -62,6 +63,8 @@ class RuleConfigurationTests(unittest.TestCase):
         self.assertIn('<rule id="100302" level="10">', xml)
         self.assertIn('<rule id="100303" level="9">', xml)
         self.assertIn('<rule id="100305" level="0">', xml)
+        self.assertIn('<rule id="100306" level="7">', xml)
+        self.assertIn('^review$', xml)
 
     def test_web_risk_replaces_phishtank_rule_without_changing_severity(self):
         args = self.arguments(reputation_provider="google-webrisk")
@@ -103,6 +106,39 @@ class RuleConfigurationTests(unittest.TestCase):
         self.assertEqual(args.group_name, "cli_group")
         self.assertEqual(args.navigation_rule_id, 100302)
         self.assertEqual(args.phishtank_rule_id, 100311)
+        self.assertIsNone(args.review_rule_id)
+
+    def test_provider_neutral_alias_overrides_installed_policy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            manifest = home / "etc" / "edge-phishing-rule-policy.json"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text(
+                '{"phishtank_rule_id":100311,"phishtank_level":10}',
+                encoding="utf-8",
+            )
+            args = self.arguments(phishtank_rule_id=100399, phishtank_level=13)
+            MODULE.apply_installed_policy_defaults(
+                args, home,
+                ["--reputation-rule-id", "100399", "--reputation-level", "13"],
+            )
+        self.assertEqual(args.phishtank_rule_id, 100399)
+        self.assertEqual(args.phishtank_level, 13)
+
+    def test_migration_allocates_only_the_new_review_rule(self):
+        args = self.arguments(
+            navigation_rule_id=100310,
+            classification_base_rule_id=100311,
+            phishtank_rule_id=100312,
+            ml_rule_id=100313,
+            error_rule_id=100314,
+            negative_rule_id=100315,
+        )
+        used = set(range(100300, 100310))
+        locations = {rule_id: Path("gmail.xml") for rule_id in used}
+        allocated = MODULE.allocate_ids(args, used, locations)
+        self.assertEqual(allocated["review_rule_id"], 100316)
+        self.assertEqual(allocated["navigation_rule_id"], 100310)
 
 
 if __name__ == "__main__":

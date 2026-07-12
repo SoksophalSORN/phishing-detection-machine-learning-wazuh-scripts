@@ -46,6 +46,10 @@ def arguments() -> argparse.Namespace:
     )
     parser.add_argument("--wazuh-home", default="/var/ossec")
     parser.add_argument("--threshold", type=float, help="override the artifact threshold; omit to use the artifact")
+    parser.add_argument(
+        "--review-threshold", type=float,
+        help="lower ML review-band threshold; must be below the suspicious threshold",
+    )
     parser.add_argument("--test-url", default="https://example.test/login")
     parser.add_argument("-v", "--verbose", action="store_true")
     return parser.parse_args()
@@ -64,6 +68,7 @@ def load_module(path: Path, name: str) -> ModuleType:
 def updated_config(
     config: dict, model_path: Path, threshold: float | None, mode: str = "modern",
     scaler_path: Path | None = None, legacy_network_features: bool = True,
+    review_threshold: float | None = None,
 ) -> dict:
     result = dict(config)
     ml = dict(result.get("ml", {}))
@@ -75,6 +80,10 @@ def updated_config(
         "threshold": threshold,
         "legacy_network_features": legacy_network_features,
     })
+    if review_threshold is not None:
+        ml["review_threshold"] = review_threshold
+    else:
+        ml.setdefault("review_threshold", 0.07)
     result["ml"] = ml
     return result
 
@@ -134,6 +143,8 @@ def main() -> int:
         raise SystemExit("Run this installer as root.")
     if args.threshold is not None and not 0.0 <= args.threshold <= 1.0:
         raise SystemExit("--threshold must be between 0 and 1")
+    if args.review_threshold is not None and not 0.0 <= args.review_threshold <= 1.0:
+        raise SystemExit("--review-threshold must be between 0 and 1")
 
     model_source = args.model.resolve(strict=True)
     if not model_source.is_file():
@@ -175,6 +186,15 @@ def main() -> int:
             "joblib/scikit-learn versions compatible with the original model. "
             f"Details: {type(exc).__name__}: {exc}"
         ) from exc
+    configured_review_threshold = float(
+        args.review_threshold
+        if args.review_threshold is not None
+        else config.get("ml", {}).get("review_threshold", 0.07)
+    )
+    if not 0.0 <= configured_review_threshold < float(validation["threshold"]):
+        raise SystemExit(
+            "ML review threshold must be between 0 and the effective suspicious threshold"
+        )
 
     wazuh_gid = grp.getgrnam("wazuh").gr_gid
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
@@ -210,7 +230,7 @@ def main() -> int:
         configured = updated_config(
             config, model_destination, args.threshold,
             "legacy_svr" if legacy_mode else "modern", scaler_destination,
-            not args.disable_legacy_network_features,
+            not args.disable_legacy_network_features, configured_review_threshold,
         )
         atomic_json_write(config_path, configured, 0, wazuh_gid, 0o640)
 
@@ -242,6 +262,7 @@ def main() -> int:
         print(f"Scaler: {scaler_destination}")
     print(f"Model version: {installed_validation['model_version']}")
     print(f"Effective threshold: {validation['threshold']}")
+    print(f"Review threshold: {configured_review_threshold}")
     print(validation_score_message(installed_validation, args.test_url))
     print(f"Backup: {backup}")
     print("Next: run verification/verify-ml-integration.py with a controlled URL.")

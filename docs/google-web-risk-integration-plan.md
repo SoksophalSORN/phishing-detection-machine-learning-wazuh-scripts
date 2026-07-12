@@ -323,6 +323,8 @@ Degraded behavior:
 - Run ML when reputation is unavailable if ML is enabled.
 - If degraded ML is suspicious, emit the existing level-9 ML alert and include
   `reputation_status` and `degraded: true`.
+- If degraded ML falls in the review band, emit the level-7 ML review alert and
+  include `reputation_status` and `degraded: true`.
 - If degraded ML is unlikely, emit the level-5 classification/provider error
   instead of a routine level-0 negative event; do not imply that the URL is
   safe.

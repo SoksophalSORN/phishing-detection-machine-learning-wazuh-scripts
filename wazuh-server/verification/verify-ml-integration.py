@@ -33,7 +33,7 @@ def arguments() -> argparse.Namespace:
         description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument("--url", required=True, help="controlled HTTP/HTTPS URL to score; it is not opened")
-    parser.add_argument("--expect", choices=("suspicious", "unlikely"))
+    parser.add_argument("--expect", choices=("suspicious", "review", "unlikely"))
     parser.add_argument("--wazuh-home", default="/var/ossec")
     parser.add_argument("-v", "--verbose", action="store_true")
     return parser.parse_args()
@@ -55,8 +55,14 @@ def expected_rule(home: Path, status: str) -> tuple[int, int]:
         policy = json.loads(manifest.read_text(encoding="utf-8"))
         if status == "suspicious":
             return int(policy["ml_rule_id"]), int(policy["ml_level"])
+        if status == "review":
+            return int(policy["review_rule_id"]), int(policy["review_level"])
         return int(policy["negative_rule_id"]), int(policy["negative_level"])
-    return (100114, 9) if status == "suspicious" else (100113, 3)
+    if status == "suspicious":
+        return 100114, 9
+    if status == "review":
+        return 100115, 7
+    return 100113, 3
 
 
 def use_wazuh_python(home: Path) -> None:

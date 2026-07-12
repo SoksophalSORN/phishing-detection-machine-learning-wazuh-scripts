@@ -10,6 +10,7 @@ model=""
 legacy_scaler=""
 config=""
 threshold=""
+review_threshold=""
 test_url="https://example.test/login"
 environment="production"
 api_key_prompt=0
@@ -38,6 +39,7 @@ Core options:
   --model FILE                    Trusted modern bundle or original model.joblib.
   --legacy-scaler FILE            Original scaler.joblib (selects legacy mode).
   --threshold NUMBER              ML decision threshold (0..1).
+  --review-threshold NUMBER       Lower ML review threshold (default: 0.07).
   --config FILE                   Classifier JSON configuration.
   --api-key-prompt                Securely prompt for an optional PhishTank key.
   --reputation-provider NAME      phishtank or google-webrisk. Existing installs
@@ -68,6 +70,7 @@ Rule policy options (all optional):
   --phishtank-rule-id ID          --phishtank-level LEVEL
   --reputation-rule-id ID         --reputation-level LEVEL (provider-neutral aliases)
   --ml-rule-id ID                 --ml-level LEVEL
+  --review-rule-id ID             --review-level LEVEL
   --error-rule-id ID              --error-level LEVEL
   --negative-rule-id ID           --negative-level LEVEL
 
@@ -96,6 +99,7 @@ while [[ $# -gt 0 ]]; do
     --model) need_value "$@"; model="$2"; shift 2 ;;
     --legacy-scaler) need_value "$@"; legacy_scaler="$2"; shift 2 ;;
     --threshold) need_value "$@"; threshold="$2"; shift 2 ;;
+    --review-threshold) need_value "$@"; review_threshold="$2"; shift 2 ;;
     --config) need_value "$@"; config="$2"; shift 2 ;;
     --test-url) need_value "$@"; test_url="$2"; shift 2 ;;
     --environment) need_value "$@"; environment="${2,,}"; shift 2 ;;
@@ -113,6 +117,7 @@ while [[ $# -gt 0 ]]; do
     --group-name|--preferred-start|--navigation-rule-id|--navigation-level|\
     --classification-base-rule-id|--classification-base-level|\
     --phishtank-rule-id|--phishtank-level|--reputation-rule-id|--reputation-level|--ml-rule-id|--ml-level|\
+    --review-rule-id|--review-level|\
     --error-rule-id|--error-level|--negative-rule-id|--negative-level)
       need_value "$@"
       rule_args+=("$1" "$2")
@@ -124,6 +129,18 @@ done
 
 if [[ "$environment" != "production" && "$environment" != "staging" ]]; then
   echo "--environment must be production or staging." >&2
+  exit 2
+fi
+if [[ -n "$review_threshold" ]] && ! python3 - "$review_threshold" <<'PY'
+import sys
+try:
+    value = float(sys.argv[1])
+except ValueError:
+    raise SystemExit(1)
+raise SystemExit(0 if 0.0 <= value <= 1.0 else 1)
+PY
+then
+  echo "--review-threshold must be between 0 and 1." >&2
   exit 2
 fi
 
@@ -410,6 +427,7 @@ echo "[3/5] Installing and enabling the ML model..."
 model_command=(python3 "$SCRIPT_DIR/install-ml-model.py" --wazuh-home "$WAZUH_HOME" --model "$model" --test-url "$test_url")
 [[ -n "$legacy_scaler" ]] && model_command+=(--legacy-scaler "$legacy_scaler")
 [[ -n "$threshold" ]] && model_command+=(--threshold "$threshold")
+[[ -n "$review_threshold" ]] && model_command+=(--review-threshold "$review_threshold")
 if [[ -n "$legacy_scaler" && "$legacy_network_features" -eq 0 ]]; then
   model_command+=(--disable-legacy-network-features)
 fi

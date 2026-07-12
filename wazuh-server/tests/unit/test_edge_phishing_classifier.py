@@ -69,6 +69,11 @@ class ClassifierTests(unittest.TestCase):
         })
         self.assertEqual(settings.ml_mode, "legacy_svr")
         self.assertEqual(settings.ml_scaler_path, "/var/ossec/etc/scaler.joblib")
+        self.assertEqual(settings.ml_review_threshold, 0.07)
+
+    def test_rejects_review_threshold_at_or_above_suspicious_threshold(self):
+        with self.assertRaisesRegex(ClassificationError, "review_threshold"):
+            Settings.from_mapping({"ml": {"threshold": 0.07, "review_threshold": 0.07}})
 
     def test_accepts_google_web_risk_settings(self):
         settings = Settings.from_mapping({
@@ -176,6 +181,31 @@ class ClassifierTests(unittest.TestCase):
 
         self.assertEqual(result["classification"]["status"], "malicious")
         self.assertEqual(result["classification"]["source"], "phishtank")
+
+    def test_ml_review_band_is_distinct_from_suspicious_and_unlikely(self):
+        navigation = validate_navigation_alert(self.navigation_alert())
+        settings = Settings(ml_enabled=True, ml_review_threshold=0.07)
+
+        def query(_url, _settings):
+            return {
+                "status": "not_found", "malicious": False,
+                "in_database": False, "verified": False, "valid": False,
+            }
+
+        def score(_url, _model_path, _threshold):
+            return {"score": 0.07405, "threshold": 0.1, "model_kind": "legacy_svr"}
+
+        with tempfile.TemporaryDirectory() as directory:
+            cache = ResultCache(Path(directory) / "cache.sqlite3")
+            try:
+                result = classify_navigation(navigation, settings, cache, query=query, ml_scorer=score)
+            finally:
+                cache.close()
+        classification = result["classification"]
+        self.assertEqual(classification["status"], "review")
+        self.assertFalse(classification["malicious"])
+        self.assertEqual(classification["review_threshold"], 0.07)
+        self.assertEqual(classification["source"], "ml")
 
     def test_web_risk_cache_is_isolated_from_phishtank(self):
         with tempfile.TemporaryDirectory() as directory:
