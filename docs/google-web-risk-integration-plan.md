@@ -1,5 +1,25 @@
 # Google Web Risk–Wazuh Integration Plan
 
+## Implementation Status
+
+The implementation-ready pilot was completed on 2026-07-12. The finalized server installer supports
+`--reputation-provider google-webrisk`, secure interactive key installation,
+provider-specific level-10 rules, provider-separated caching, a monthly request
+guard, bounded retries and circuit state, ML degraded fallback, transactional
+provider switching, and an explicit live verification command. PhishTank
+remains available through `--reputation-provider phishtank`; the installer does
+not activate both providers together.
+
+The repository-side implementation and offline validation are complete. The
+environment-specific staging and production rollout phases later in this plan
+remain operator acceptance work: run the explicit live verifier, compare usage
+with Google Cloud metrics, and observe the selected pilot environment before a
+wider rollout.
+
+The policy manifest retains `phishtank_rule_id` and `phishtank_level` for
+backward compatibility. New deployments can use the provider-neutral
+`--reputation-rule-id` and `--reputation-level` aliases.
+
 ## Purpose
 
 Add Google Web Risk's per-URL Lookup API as an alternative reputation solution

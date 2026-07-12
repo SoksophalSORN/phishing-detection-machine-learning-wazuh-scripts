@@ -19,6 +19,7 @@ class RuleConfigurationTests(unittest.TestCase):
     def arguments(self, **overrides):
         values = {
             "group_name": "browser_navigation,phishing_detection",
+            "reputation_provider": "phishtank",
             "preferred_start": 100300,
             "navigation_level": 5,
             "classification_base_level": 0,
@@ -61,6 +62,15 @@ class RuleConfigurationTests(unittest.TestCase):
         self.assertIn('<rule id="100302" level="10">', xml)
         self.assertIn('<rule id="100303" level="9">', xml)
         self.assertIn('<rule id="100305" level="0">', xml)
+
+    def test_web_risk_replaces_phishtank_rule_without_changing_severity(self):
+        args = self.arguments(reputation_provider="google-webrisk")
+        policy = MODULE.make_policy(args, MODULE.allocate_ids(args, set(), {}))
+        xml = MODULE.generate_xml(policy)
+        self.assertIn('<rule id="100302" level="10">', xml)
+        self.assertIn('^google_webrisk$', xml)
+        self.assertIn('google_web_risk', xml)
+        self.assertNotIn('^phishtank$', xml)
 
     def test_rejects_explicit_collision(self):
         args = self.arguments(navigation_rule_id=100300)

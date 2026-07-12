@@ -22,6 +22,12 @@ class CompleteInstallerTests(unittest.TestCase):
         self.assertIn("--api-key-prompt", completed.stdout)
         self.assertIn("--enable-legacy-network-features", completed.stdout)
         self.assertIn("--environment", completed.stdout)
+        self.assertIn("--reputation-provider", completed.stdout)
+        self.assertIn("--web-risk-key-prompt", completed.stdout)
+        self.assertIn("--web-risk-key-file", completed.stdout)
+        self.assertIn("--web-risk-threat-type", completed.stdout)
+        self.assertIn("--web-risk-monthly-limit", completed.stdout)
+        self.assertIn("--web-risk-negative-cache-seconds", completed.stdout)
 
     def test_unknown_option_is_rejected_without_installing(self):
         completed = subprocess.run(

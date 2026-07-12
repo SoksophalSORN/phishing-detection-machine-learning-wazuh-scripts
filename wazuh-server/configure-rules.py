@@ -32,6 +32,7 @@ MANAGED_FILES = {
 @dataclass
 class Policy:
     group_name: str = "browser_navigation,phishing_detection"
+    reputation_provider: str = "phishtank"
     navigation_rule_id: int = 0
     navigation_level: int = 5
     classification_base_rule_id: int = 0
@@ -69,14 +70,26 @@ def parser() -> argparse.ArgumentParser:
         help="comma-separated Wazuh group names",
     )
     result.add_argument("--preferred-start", type=int, default=100300, help="first ID considered for automatic allocation")
+    result.add_argument(
+        "--reputation-provider", choices=("phishtank", "google-webrisk"), default="phishtank",
+        help="the one reputation provider whose confirmed-phishing rule is enabled",
+    )
     for role in RULE_ROLES:
         result.add_argument(
             "--" + role.replace("_", "-"), type=int,
             help="explicit custom rule ID; omitted IDs are allocated automatically",
         )
+    result.add_argument(
+        "--reputation-rule-id", dest="phishtank_rule_id", type=int, default=argparse.SUPPRESS,
+        help="provider-neutral alias for --phishtank-rule-id",
+    )
     result.add_argument("--navigation-level", type=int, default=5, help="Edge URL-observed alert level")
     result.add_argument("--classification-base-level", type=int, default=0, help="classification parent level")
     result.add_argument("--phishtank-level", type=int, default=10, help="verified PhishTank alert level")
+    result.add_argument(
+        "--reputation-level", dest="phishtank_level", type=int, default=argparse.SUPPRESS,
+        help="provider-neutral alias for --phishtank-level",
+    )
     result.add_argument("--ml-level", type=int, default=9, help="ML-suspicious alert level")
     result.add_argument("--error-level", type=int, default=5, help="classifier failure alert level")
     result.add_argument("--negative-level", type=int, default=0, help="negative/unknown result level")
@@ -189,7 +202,7 @@ def run_wizard(args: argparse.Namespace, allocated: dict[str, int]) -> None:
     labels = {
         "navigation": "URL observed",
         "classification_base": "Classification base",
-        "phishtank": "Verified PhishTank",
+        "phishtank": "Verified reputation result",
         "ml": "ML suspicious result",
         "error": "Classification error",
         "negative": "Negative/unknown result",
@@ -205,6 +218,7 @@ def make_policy(args: argparse.Namespace, allocated: dict[str, int]) -> Policy:
     if not GROUP_RE.fullmatch(args.group_name):
         raise ValueError("group name must be a comma-separated Wazuh name list")
     values = {field.name: getattr(args, field.name, field.default) for field in fields(Policy)}
+    values["reputation_provider"] = values["reputation_provider"].replace("-", "_")
     values.update(allocated)
     policy = Policy(**values)
     ids = [getattr(policy, role) for role in RULE_ROLES]
@@ -221,6 +235,19 @@ def make_policy(args: argparse.Namespace, allocated: dict[str, int]) -> Policy:
 def generate_xml(policy: Policy) -> str:
     group = policy.group_name.rstrip(",") + ","
     group_xml = html.escape(group, quote=True)
+    if policy.reputation_provider == "google_webrisk":
+        reputation_source = "google_webrisk"
+        reputation_description = (
+            "A URL opened by a user on $(classification.url_host) was identified as "
+            "$(classification.threat_types) by Google Web Risk."
+        )
+        reputation_group = "google_web_risk"
+    else:
+        reputation_source = "phishtank"
+        reputation_description = (
+            "A URL opened by a user on $(classification.url_host) was verified as phishing by PhishTank."
+        )
+        reputation_group = "phishtank"
     return f'''<group name="{group_xml}">
   <rule id="{policy.navigation_rule_id}" level="{policy.navigation_level}">
     <if_sid>86600</if_sid>
@@ -243,10 +270,10 @@ def generate_xml(policy: Policy) -> str:
   <rule id="{policy.phishtank_rule_id}" level="{policy.phishtank_level}">
     <if_sid>{policy.classification_base_rule_id}</if_sid>
     <field name="classification.status" type="pcre2">^malicious$</field>
-    <field name="classification.source" type="pcre2">^phishtank$</field>
-    <description>A URL opened by a user on $(classification.url_host) was verified as phishing by PhishTank.</description>
+    <field name="classification.source" type="pcre2">^{reputation_source}$</field>
+    <description>{reputation_description}</description>
     <mitre><id>T1566.002</id></mitre>
-    <group>phishing,confirmed_phishing,phishtank,</group>
+    <group>phishing,confirmed_phishing,{reputation_group},</group>
   </rule>
 
   <rule id="{policy.ml_rule_id}" level="{policy.ml_level}">
@@ -319,7 +346,7 @@ def install(policy: Policy, xml: str, home: Path, verbose: bool) -> None:
             f"{policy.navigation_rule_id}:{policy.navigation_level}:json",
         ),
         (
-            json.dumps({"integration": "edge-phishing-classifier", "classification": {"status": "malicious", "source": "phishtank", "url_host": "example.test"}}),
+            json.dumps({"integration": "edge-phishing-classifier", "classification": {"status": "malicious", "source": policy.reputation_provider, "url_host": "example.test", "threat_types": ["SOCIAL_ENGINEERING"]}}),
             f"{policy.phishtank_rule_id}:{policy.phishtank_level}:json",
         ),
         (

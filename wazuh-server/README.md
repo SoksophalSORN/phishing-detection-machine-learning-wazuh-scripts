@@ -21,7 +21,7 @@ compatibility mode. The complete installer performs the following sequence:
    classification policy.
 2. Installs and registers the structured Edge phishing classifier.
 3. Validates and installs the trusted model and scaler.
-4. Forces a PhishTank-negative result and exercises ML entirely offline.
+4. Forces a reputation-negative result and exercises ML entirely offline.
 5. Confirms the selected ML Wazuh rule and validates the running manager.
 
 It takes a pre-installation snapshot of every managed rule, configuration,
@@ -75,11 +75,52 @@ be reachable during installation. A later API outage or Cloudflare challenge
 is reported by the configured classifier-error rule and is operational state,
 not an installation rollback condition.
 
-Google Web Risk is planned as an alternative reputation solution, not a
-simultaneous second lookup. Before selecting Web Risk, the server installer must
-disable and validate removal of the active PhishTank integration and
-PhishTank-specific rules. Exactly one reputation provider may be active. See
-the [Google Web Risk integration plan](../docs/google-web-risk-integration-plan.md).
+Google Web Risk is implemented as an alternative reputation solution, not a
+simultaneous second lookup. Install or switch to it with:
+
+```bash
+sudo bash ./wazuh-server/install-wazuh-server.sh --environment production \
+  --reputation-provider google-webrisk --web-risk-key-prompt -v
+```
+
+`SOCIAL_ENGINEERING` is requested by default. Add either optional category by
+repeating `--web-risk-threat-type`, for example:
+
+```bash
+sudo bash ./wazuh-server/install-wazuh-server.sh --environment staging \
+  --reputation-provider google-webrisk --web-risk-key-prompt \
+  --web-risk-threat-type SOCIAL_ENGINEERING \
+  --web-risk-threat-type MALWARE -v
+```
+
+The key is stored at `/var/ossec/etc/edge-google-web-risk.key` as
+`root:wazuh` mode `0640`; it is not stored in the classifier JSON or shell
+history. The installer first backs up the managed state. When changing
+providers, it removes the active managed integration and rules, validates and
+restarts Wazuh in that disabled state, and only then configures the selected
+provider. It aborts if active unmanaged PhishTank rules or integrations remain.
+Exactly one reputation provider may be active.
+
+For automation, `--web-risk-key-file /protected/key` copies a pre-staged key;
+do not put the key itself on the command line. Optional controls include
+`--web-risk-monthly-limit` (default `90000`) and
+`--web-risk-negative-cache-seconds` (default `300`). Provider-neutral rule
+aliases `--reputation-rule-id` and `--reputation-level` coexist with the older
+PhishTank-named flags for compatibility.
+
+Installation uses only synthetic rule results and makes no live Web Risk call.
+After installation, make one explicit acceptance lookup (which can consume API
+quota) with:
+
+```bash
+sudo python3 ./wazuh-server/verification/verify-web-risk-integration.py \
+  --url 'http://testsafebrowsing.appspot.com/s/phishing.html' --wait 60
+```
+
+The verifier submits the string only to Web Risk; it does not open or download
+the target. An empty result means `not_found`, never “safe,” and proceeds to the
+configured ML fallback. See the
+[Google Web Risk integration plan](../docs/google-web-risk-integration-plan.md).
 
 This script installs only the Ubuntu Wazuh-manager side. The Edge extension,
 Windows native host, and Windows Wazuh-agent `localfile` configuration must
@@ -259,12 +300,12 @@ the default policy is:
 |---|---:|---:|
 | Edge URL observed | `100300` | `5` |
 | Classification base | `100301` | `0` |
-| Verified PhishTank URL | `100302` | `10` |
+| Confirmed reputation URL | `100302` | `10` |
 | ML-suspicious URL | `100303` | `9` |
 | Classifier error | `100304` | `5` |
 | Negative/unknown result | `100305` | `0` |
 
-These levels preserve the original project's navigation, PhishTank, and ML
+These levels preserve the original project's navigation, reputation, and ML
 severities while suppressing routine negative-result alerts. If any default ID
 is active elsewhere, the tool selects the first free contiguous range. It
 rejects collisions for explicitly supplied IDs.

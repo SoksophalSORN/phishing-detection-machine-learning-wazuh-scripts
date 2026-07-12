@@ -33,6 +33,9 @@ def main() -> int:
     integration = home / "integrations" / "custom-edge-phishing-classifier"
     config_path = home / "etc" / "edge-phishing-classifier.json"
     config = json.loads(config_path.read_text(encoding="utf-8"))
+    provider = config.get("reputation", {}).get("provider", "phishtank").replace("-", "_")
+    if provider != "phishtank":
+        raise SystemExit(f"PhishTank is not active (configured provider: {provider})")
     navigation_rule = str(config.get("navigation_rule_id", "100100"))
     source_event_id = f"safe-phish-test-{uuid.uuid4()}"
     alert = {

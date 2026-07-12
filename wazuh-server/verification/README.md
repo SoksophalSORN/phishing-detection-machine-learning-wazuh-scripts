@@ -11,5 +11,11 @@ These commands inspect or safely exercise a configured Wazuh manager:
 - `verify-phishtank-integration.py` submits a URL to the configured PhishTank
   lookup without opening or downloading the target. It requires the external
   service to be reachable.
+- `verify-web-risk-integration.py` performs one explicit lookup through the
+  configured Google Web Risk provider without opening or downloading the
+  target. It may consume API quota. A match or a clean no-match pipeline result
+  succeeds; provider/authentication errors fail.
+
+Each live provider verifier refuses to run when its provider is not selected.
 
 These are acceptance and operational diagnostics, not development unit tests.

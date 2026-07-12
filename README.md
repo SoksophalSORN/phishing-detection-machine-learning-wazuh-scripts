@@ -38,6 +38,16 @@ Production example:
 sudo bash ./wazuh-server/install-wazuh-server.sh --environment production -v
 ```
 
+To use Google Web Risk instead of PhishTank, securely enter the tested key:
+
+```bash
+sudo bash ./wazuh-server/install-wazuh-server.sh --environment production \
+  --reputation-provider google-webrisk --web-risk-key-prompt -v
+```
+
+The two reputation providers remain available as alternatives but are never
+enabled together.
+
 For staging, change the environment value to `Staging` on Windows and
 `staging` on Ubuntu. Development tests are isolated under
 `wazuh-server/tests`; installed-system checks are under

@@ -70,6 +70,17 @@ class ClassifierTests(unittest.TestCase):
         self.assertEqual(settings.ml_mode, "legacy_svr")
         self.assertEqual(settings.ml_scaler_path, "/var/ossec/etc/scaler.joblib")
 
+    def test_accepts_google_web_risk_settings(self):
+        settings = Settings.from_mapping({
+            "reputation": {
+                "provider": "google-webrisk",
+                "api_key_file": "/var/ossec/etc/key",
+                "threat_types": ["SOCIAL_ENGINEERING", "MALWARE"],
+            }
+        })
+        self.assertEqual(settings.reputation_provider, "google_webrisk")
+        self.assertEqual(settings.web_risk_threat_types, ("SOCIAL_ENGINEERING", "MALWARE"))
+
     def test_normalizes_confirmed_phish(self):
         result = normalize_phishtank_result({
             "results": {
@@ -165,6 +176,71 @@ class ClassifierTests(unittest.TestCase):
 
         self.assertEqual(result["classification"]["status"], "malicious")
         self.assertEqual(result["classification"]["source"], "phishtank")
+
+    def test_web_risk_cache_is_isolated_from_phishtank(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = ResultCache(Path(directory) / "cache.sqlite3")
+            try:
+                cache.put("https://example.test/", {"status": "not_found"}, 60, provider="phishtank")
+                self.assertIsNone(cache.get("https://example.test/", provider="google_webrisk"))
+            finally:
+                cache.close()
+
+    def test_web_risk_monthly_guard_and_circuit_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = ResultCache(Path(directory) / "cache.sqlite3")
+            try:
+                self.assertTrue(cache.reserve_request("google_webrisk", 1, now=1_700_000_000))
+                self.assertFalse(cache.reserve_request("google_webrisk", 1, now=1_700_000_001))
+                cache.record_error("google_webrisk", 60, now=1_700_000_000)
+                self.assertTrue(cache.circuit_open("google_webrisk", now=1_700_000_001))
+                self.assertFalse(cache.circuit_open("google_webrisk", now=1_700_000_061))
+            finally:
+                cache.close()
+
+    def test_web_risk_failure_uses_ml_as_degraded_fallback(self):
+        navigation = validate_navigation_alert(self.navigation_alert())
+        settings = Settings(reputation_provider="google_webrisk", ml_enabled=True)
+
+        def failed_query(_url, _settings):
+            raise ClassificationError("Google Web Risk HTTP error 403")
+
+        def score(_url, _model_path, _threshold):
+            return {"score": 0.9, "threshold": 0.5, "model_kind": "test", "calibrated": False}
+
+        with tempfile.TemporaryDirectory() as directory:
+            cache = ResultCache(Path(directory) / "cache.sqlite3")
+            try:
+                result = classify_navigation(navigation, settings, cache, query=failed_query, ml_scorer=score)
+            finally:
+                cache.close()
+        classification = result["classification"]
+        self.assertEqual(classification["status"], "suspicious")
+        self.assertTrue(classification["degraded"])
+        self.assertEqual(classification["reputation_provider"], "google_webrisk")
+
+    def test_web_risk_match_prevents_ml_and_keeps_provider_source(self):
+        navigation = validate_navigation_alert(self.navigation_alert())
+        settings = Settings(reputation_provider="google_webrisk", ml_enabled=True)
+
+        def query(_url, _settings):
+            return {
+                "status": "malicious", "malicious": True, "in_database": True,
+                "verified": True, "valid": True, "provider": "google_webrisk",
+                "threat_types": ["SOCIAL_ENGINEERING"], "expire_at": 4_000_000_000,
+            }
+
+        def unexpected_score(*_args):
+            self.fail("ML must not override a Web Risk match")
+
+        with tempfile.TemporaryDirectory() as directory:
+            cache = ResultCache(Path(directory) / "cache.sqlite3")
+            try:
+                result = classify_navigation(navigation, settings, cache, query=query, ml_scorer=unexpected_score)
+            finally:
+                cache.close()
+        self.assertEqual(result["classification"]["source"], "google_webrisk")
+        self.assertEqual(result["classification"]["status"], "malicious")
 
 
 if __name__ == "__main__":

@@ -1,8 +1,9 @@
-"""Structured PhishTank and optional URL-only ML classification for Wazuh."""
+"""Mutually exclusive reputation providers and optional ML classification."""
 
 from __future__ import annotations
 
 import json
+import hashlib
 import sqlite3
 import time
 import urllib.error
@@ -22,12 +23,20 @@ class ClassificationError(Exception):
 
 @dataclass(frozen=True)
 class Settings:
+    reputation_provider: str = "phishtank"
     endpoint: str = "https://checkurl.phishtank.com/checkurl/"
     api_key: str = ""
     user_agent: str = "phishtank/wazuh-edge-phishing-pilot"
     timeout_seconds: float = 8.0
     positive_cache_seconds: int = 21600
     negative_cache_seconds: int = 900
+    web_risk_endpoint: str = "https://webrisk.googleapis.com/v1/uris:search"
+    web_risk_api_key_file: str = "/var/ossec/etc/edge-google-web-risk.key"
+    web_risk_threat_types: tuple[str, ...] = ("SOCIAL_ENGINEERING",)
+    web_risk_maximum_response_bytes: int = 65536
+    web_risk_monthly_request_limit: int = 90000
+    web_risk_retry_count: int = 1
+    web_risk_circuit_breaker_seconds: int = 300
     navigation_rule_id: str = "100100"
     ml_enabled: bool = False
     ml_mode: str = "modern"
@@ -41,10 +50,52 @@ class Settings:
 
     @classmethod
     def from_mapping(cls, value: dict[str, Any]) -> "Settings":
+        reputation = value.get("reputation")
+        if reputation is None:
+            reputation = {}
+        if not isinstance(reputation, dict):
+            raise ClassificationError("reputation configuration must be an object")
+        provider = str(reputation.get("provider", "phishtank")).replace("-", "_")
+        if provider not in {"phishtank", "google_webrisk", "disabled"}:
+            raise ClassificationError("reputation.provider must be phishtank, google_webrisk, or disabled")
         endpoint = str(value.get("endpoint", cls.endpoint))
         parsed = urllib.parse.urlsplit(endpoint)
-        if parsed.scheme != "https" or not parsed.hostname:
+        if provider == "phishtank" and (parsed.scheme != "https" or not parsed.hostname):
             raise ClassificationError("PhishTank endpoint must be an HTTPS URL")
+        web_risk_endpoint = str(reputation.get("endpoint", cls.web_risk_endpoint))
+        web_risk_key_file = str(reputation.get("api_key_file", cls.web_risk_api_key_file))
+        try:
+            from google_web_risk import validate_endpoint, validate_threat_types
+
+            if provider == "google_webrisk":
+                validate_endpoint(web_risk_endpoint)
+                if not Path(web_risk_key_file).is_absolute():
+                    raise ValueError("Web Risk api_key_file must be absolute")
+            threat_types = validate_threat_types(
+                reputation.get("threat_types", list(cls.web_risk_threat_types))
+            )
+        except ValueError as exc:
+            raise ClassificationError(str(exc)) from exc
+        timeout_seconds = float(reputation.get("timeout_seconds", value.get("timeout_seconds", cls.timeout_seconds)))
+        negative_cache_seconds = int(
+            reputation.get("negative_cache_seconds", value.get("negative_cache_seconds", cls.negative_cache_seconds))
+        )
+        maximum_response_bytes = int(reputation.get("maximum_response_bytes", cls.web_risk_maximum_response_bytes))
+        monthly_request_limit = int(reputation.get("monthly_request_limit", cls.web_risk_monthly_request_limit))
+        retry_count = int(reputation.get("retry_count", cls.web_risk_retry_count))
+        circuit_seconds = int(reputation.get("circuit_breaker_seconds", cls.web_risk_circuit_breaker_seconds))
+        if not 0.1 <= timeout_seconds <= 30:
+            raise ClassificationError("reputation.timeout_seconds must be between 0.1 and 30")
+        if not 0 <= negative_cache_seconds <= 86400:
+            raise ClassificationError("reputation.negative_cache_seconds must be between 0 and 86400")
+        if not 1024 <= maximum_response_bytes <= 1024 * 1024:
+            raise ClassificationError("reputation.maximum_response_bytes must be between 1024 and 1048576")
+        if not 1 <= monthly_request_limit <= 10000000:
+            raise ClassificationError("reputation.monthly_request_limit must be between 1 and 10000000")
+        if not 0 <= retry_count <= 3:
+            raise ClassificationError("reputation.retry_count must be between 0 and 3")
+        if not 1 <= circuit_seconds <= 3600:
+            raise ClassificationError("reputation.circuit_breaker_seconds must be between 1 and 3600")
         ml = value.get("ml", {})
         if not isinstance(ml, dict):
             raise ClassificationError("ml configuration must be an object")
@@ -83,12 +134,20 @@ class Settings:
         if not navigation_rule_id.isdigit() or not 100000 <= int(navigation_rule_id) <= 120000:
             raise ClassificationError("navigation_rule_id must be between 100000 and 120000")
         return cls(
+            reputation_provider=provider,
             endpoint=endpoint,
             api_key=str(value.get("api_key", "")),
             user_agent=str(value.get("user_agent", cls.user_agent)),
-            timeout_seconds=float(value.get("timeout_seconds", cls.timeout_seconds)),
+            timeout_seconds=timeout_seconds,
             positive_cache_seconds=int(value.get("positive_cache_seconds", cls.positive_cache_seconds)),
-            negative_cache_seconds=int(value.get("negative_cache_seconds", cls.negative_cache_seconds)),
+            negative_cache_seconds=negative_cache_seconds,
+            web_risk_endpoint=web_risk_endpoint,
+            web_risk_api_key_file=web_risk_key_file,
+            web_risk_threat_types=threat_types,
+            web_risk_maximum_response_bytes=maximum_response_bytes,
+            web_risk_monthly_request_limit=monthly_request_limit,
+            web_risk_retry_count=retry_count,
+            web_risk_circuit_breaker_seconds=circuit_seconds,
             navigation_rule_id=navigation_rule_id,
             ml_enabled=ml_enabled,
             ml_mode=ml_mode,
@@ -162,34 +221,111 @@ class ResultCache:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(path, timeout=5)
         self.connection.execute(
-            "CREATE TABLE IF NOT EXISTS phishtank_cache "
-            "(url TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, result TEXT NOT NULL)"
+            "CREATE TABLE IF NOT EXISTS reputation_cache "
+            "(provider TEXT NOT NULL, url_key TEXT NOT NULL, expires_at INTEGER NOT NULL, "
+            "result TEXT NOT NULL, PRIMARY KEY(provider, url_key))"
+        )
+        self.connection.execute(
+            "CREATE TABLE IF NOT EXISTS reputation_usage "
+            "(provider TEXT NOT NULL, calendar_month TEXT NOT NULL, request_count INTEGER NOT NULL, "
+            "error_count INTEGER NOT NULL, PRIMARY KEY(provider, calendar_month))"
+        )
+        self.connection.execute(
+            "CREATE TABLE IF NOT EXISTS reputation_state "
+            "(provider TEXT PRIMARY KEY, consecutive_failures INTEGER NOT NULL, circuit_open_until INTEGER NOT NULL)"
         )
         self.connection.commit()
 
-    def get(self, url: str, now: int | None = None) -> dict[str, Any] | None:
+    @staticmethod
+    def url_key(url: str) -> str:
+        return hashlib.sha256(url.encode("utf-8")).hexdigest()
+
+    def get(self, url: str, provider: str = "phishtank", now: int | None = None) -> dict[str, Any] | None:
         timestamp = int(time.time()) if now is None else now
         row = self.connection.execute(
-            "SELECT result FROM phishtank_cache WHERE url = ? AND expires_at > ?",
-            (url, timestamp),
+            "SELECT result FROM reputation_cache WHERE provider = ? AND url_key = ? AND expires_at > ?",
+            (provider, self.url_key(url), timestamp),
         ).fetchone()
         if row is None:
             return None
         try:
             value = json.loads(row[0])
         except json.JSONDecodeError:
-            self.connection.execute("DELETE FROM phishtank_cache WHERE url = ?", (url,))
+            self.connection.execute(
+                "DELETE FROM reputation_cache WHERE provider = ? AND url_key = ?",
+                (provider, self.url_key(url)),
+            )
             self.connection.commit()
             return None
         return value if isinstance(value, dict) else None
 
-    def put(self, url: str, result: dict[str, Any], ttl_seconds: int, now: int | None = None) -> None:
+    def put(
+        self, url: str, result: dict[str, Any], ttl_seconds: int,
+        provider: str = "phishtank", now: int | None = None,
+    ) -> None:
         timestamp = int(time.time()) if now is None else now
         self.connection.execute(
-            "INSERT OR REPLACE INTO phishtank_cache(url, expires_at, result) VALUES (?, ?, ?)",
-            (url, timestamp + ttl_seconds, json.dumps(result, separators=(",", ":"), sort_keys=True)),
+            "INSERT OR REPLACE INTO reputation_cache(provider, url_key, expires_at, result) VALUES (?, ?, ?, ?)",
+            (
+                provider, self.url_key(url), timestamp + max(0, ttl_seconds),
+                json.dumps(result, separators=(",", ":"), sort_keys=True),
+            ),
         )
         self.connection.commit()
+
+    def reserve_request(self, provider: str, limit: int, now: int | None = None) -> bool:
+        timestamp = int(time.time()) if now is None else now
+        month = time.strftime("%Y-%m", time.gmtime(timestamp))
+        self.connection.execute("BEGIN IMMEDIATE")
+        try:
+            row = self.connection.execute(
+                "SELECT request_count FROM reputation_usage WHERE provider = ? AND calendar_month = ?",
+                (provider, month),
+            ).fetchone()
+            count = 0 if row is None else int(row[0])
+            if count >= limit:
+                self.connection.rollback()
+                return False
+            self.connection.execute(
+                "INSERT INTO reputation_usage(provider, calendar_month, request_count, error_count) "
+                "VALUES (?, ?, 1, 0) ON CONFLICT(provider, calendar_month) DO UPDATE SET request_count=request_count+1",
+                (provider, month),
+            )
+            self.connection.commit()
+            return True
+        except Exception:
+            self.connection.rollback()
+            raise
+
+    def record_error(self, provider: str, circuit_seconds: int, now: int | None = None) -> None:
+        timestamp = int(time.time()) if now is None else now
+        month = time.strftime("%Y-%m", time.gmtime(timestamp))
+        self.connection.execute(
+            "INSERT INTO reputation_usage(provider, calendar_month, request_count, error_count) "
+            "VALUES (?, ?, 0, 1) ON CONFLICT(provider, calendar_month) DO UPDATE SET error_count=error_count+1",
+            (provider, month),
+        )
+        self.connection.execute(
+            "INSERT INTO reputation_state(provider, consecutive_failures, circuit_open_until) VALUES (?, 1, ?) "
+            "ON CONFLICT(provider) DO UPDATE SET consecutive_failures=consecutive_failures+1, circuit_open_until=excluded.circuit_open_until",
+            (provider, timestamp + circuit_seconds),
+        )
+        self.connection.commit()
+
+    def record_success(self, provider: str) -> None:
+        self.connection.execute(
+            "INSERT INTO reputation_state(provider, consecutive_failures, circuit_open_until) VALUES (?, 0, 0) "
+            "ON CONFLICT(provider) DO UPDATE SET consecutive_failures=0, circuit_open_until=0",
+            (provider,),
+        )
+        self.connection.commit()
+
+    def circuit_open(self, provider: str, now: int | None = None) -> bool:
+        timestamp = int(time.time()) if now is None else now
+        row = self.connection.execute(
+            "SELECT circuit_open_until FROM reputation_state WHERE provider = ?", (provider,)
+        ).fetchone()
+        return row is not None and int(row[0]) > timestamp
 
     def close(self) -> None:
         self.connection.close()
@@ -224,6 +360,7 @@ def normalize_phishtank_result(payload: dict[str, Any]) -> dict[str, Any]:
         "in_database": in_database,
         "verified": verified,
         "valid": valid,
+        "provider": "phishtank",
     }
     if results.get("phish_id") is not None:
         normalized["phish_id"] = str(results["phish_id"])
@@ -271,26 +408,38 @@ def query_phishtank(
     return normalize_phishtank_result(decoded)
 
 
+def query_reputation(url: str, settings: Settings) -> dict[str, Any]:
+    if settings.reputation_provider == "phishtank":
+        return query_phishtank(url, settings)
+    if settings.reputation_provider == "google_webrisk":
+        from google_web_risk import WebRiskError, query_url
+
+        try:
+            return query_url(
+                url,
+                endpoint=settings.web_risk_endpoint,
+                api_key_file=settings.web_risk_api_key_file,
+                threat_types=settings.web_risk_threat_types,
+                timeout_seconds=settings.timeout_seconds,
+                maximum_response_bytes=settings.web_risk_maximum_response_bytes,
+                retry_count=settings.web_risk_retry_count,
+            )
+        except WebRiskError as exc:
+            raise ClassificationError(str(exc)) from exc
+    raise ClassificationError("reputation provider is disabled")
+
+
 def classify_navigation(
     navigation: dict[str, Any],
     settings: Settings,
     cache: ResultCache,
-    query: Callable[[str, Settings], dict[str, Any]] = query_phishtank,
+    query: Callable[[str, Settings], dict[str, Any]] | None = None,
     ml_scorer: Callable[[str, str, float | None], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     started = time.monotonic()
-    cached = cache.get(navigation["url"])
-    if cached is None:
-        reputation = query(navigation["url"], settings)
-        ttl = settings.positive_cache_seconds if reputation["in_database"] else settings.negative_cache_seconds
-        cache.put(navigation["url"], reputation, ttl)
-        cache_hit = False
-    else:
-        reputation = cached
-        cache_hit = True
+    provider = settings.reputation_provider
 
-    classification_source = "phishtank"
-    if not reputation["malicious"] and settings.ml_enabled:
+    def score_with_ml() -> dict[str, Any]:
         if ml_scorer is None:
             if settings.ml_mode == "legacy_svr":
                 from legacy_url_ml import score_legacy_url
@@ -308,13 +457,86 @@ def classify_navigation(
                     navigation["url"], settings.ml_model_path, settings.ml_threshold
                 )
         else:
-            ml_result = ml_scorer(
+            result = ml_scorer(
                 navigation["url"], settings.ml_model_path, settings.ml_threshold
             )
-        reputation.update(ml_result)
-        reputation["status"] = "suspicious" if ml_result["score"] >= ml_result["threshold"] else "unlikely"
-        reputation["malicious"] = reputation["status"] == "suspicious"
-        classification_source = "ml"
+            return result
+        return ml_result
+
+    cached = cache.get(navigation["url"], provider=provider)
+    cache_hit = cached is not None
+    reputation_error: str | None = None
+    reputation_failure_status = "error"
+    if cached is not None:
+        reputation = cached
+    else:
+        if provider == "google_webrisk" and cache.circuit_open(provider):
+            reputation_error = "Google Web Risk circuit breaker is open"
+            reputation_failure_status = "circuit_open"
+            reputation = {}
+        elif provider == "google_webrisk" and not cache.reserve_request(
+            provider, settings.web_risk_monthly_request_limit
+        ):
+            reputation_error = "Google Web Risk monthly request guard reached"
+            reputation_failure_status = "quota_guard"
+            reputation = {}
+        else:
+            try:
+                reputation = (query or query_reputation)(navigation["url"], settings)
+            except ClassificationError as exc:
+                reputation_error = str(exc)
+                reputation = {}
+                if provider == "google_webrisk":
+                    cache.record_error(provider, settings.web_risk_circuit_breaker_seconds)
+            else:
+                if provider == "google_webrisk":
+                    cache.record_success(provider)
+                reputation.setdefault("provider", provider)
+                if provider == "google_webrisk" and reputation.get("malicious"):
+                    expire_at = int(reputation.pop("expire_at", int(time.time()) + 1))
+                    ttl = max(1, expire_at - int(time.time()))
+                else:
+                    ttl = settings.positive_cache_seconds if reputation.get("in_database") else settings.negative_cache_seconds
+                if ttl > 0:
+                    cache.put(navigation["url"], reputation, ttl, provider=provider)
+
+    if reputation_error is not None:
+        if not settings.ml_enabled:
+            raise ClassificationError(reputation_error)
+        ml_result = score_with_ml()
+        ml_status = "suspicious" if ml_result["score"] >= ml_result["threshold"] else "unlikely"
+        if ml_status == "suspicious":
+            reputation = {
+                **ml_result,
+                "status": "suspicious",
+                "malicious": True,
+                "source": "ml",
+                "degraded": True,
+                "reputation_provider": provider,
+                "reputation_status": reputation_failure_status,
+                "reputation_error": reputation_error,
+            }
+        else:
+            reputation = {
+                **ml_result,
+                "status": "error",
+                "ml_status": "unlikely",
+                "malicious": False,
+                "source": "classifier",
+                "degraded": True,
+                "reputation_provider": provider,
+                "reputation_status": reputation_failure_status,
+                "error": reputation_error,
+            }
+        classification_source = reputation["source"]
+    else:
+        classification_source = str(reputation.get("provider", provider))
+        if not reputation.get("malicious", False) and settings.ml_enabled:
+            ml_result = score_with_ml()
+            reputation.update(ml_result)
+            reputation["status"] = "suspicious" if ml_result["score"] >= ml_result["threshold"] else "unlikely"
+            reputation["malicious"] = reputation["status"] == "suspicious"
+            classification_source = "ml"
 
     return {
         "integration": "edge-phishing-classifier",
@@ -322,6 +544,7 @@ def classify_navigation(
         "classification": {
             **reputation,
             "source": classification_source,
+            "reputation_provider": provider,
             "url": navigation["url"],
             "url_host": navigation["url_host"],
             "source_event_id": navigation["source_event_id"],

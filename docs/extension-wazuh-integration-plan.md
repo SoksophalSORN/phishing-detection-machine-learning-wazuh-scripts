@@ -81,12 +81,12 @@ the final rule policy, classifier, and trusted ML artifacts in one workflow,
 runs offline ML and Wazuh rule verification, and restores a complete
 pre-installation snapshot if any stage fails.
 
-The per-URL Google Web Risk Lookup API is planned as another supported solution
-beside PhishTank, not as its removal from the project. Only one reputation
-provider may be active on a Wazuh manager. PhishTank integration and
-PhishTank-specific rules must be disabled and Wazuh validated before Web Risk
-configuration is installed. The Web Risk implementation will not download a
-local threat database. See the
+The per-URL Google Web Risk Lookup API is implemented as another supported
+solution beside PhishTank, not as its removal from the project. Only one
+reputation provider may be active on a Wazuh manager. The installer disables
+the managed PhishTank integration and rules and validates Wazuh before Web Risk
+configuration is installed; unmanaged conflicts cause it to stop. The Web Risk
+implementation does not download a local threat database. See the
 [Google Web Risk–Wazuh integration plan](google-web-risk-integration-plan.md).
 
 ### Phase 1: Capture Edge Navigation Locally

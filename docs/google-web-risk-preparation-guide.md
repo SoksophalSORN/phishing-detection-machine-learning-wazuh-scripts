@@ -223,9 +223,9 @@ Do not:
 - Paste it into issue trackers, chat, screenshots, or documentation.
 - Put it into the current PhishTank configuration.
 - Save it permanently in shell history or a command argument.
-- Install it on the Wazuh server before the Web Risk installer exists.
+- Install it manually in an unprotected Wazuh path.
 
-The future installer will prompt without echo and atomically install the key at
+The server installer prompts without echo and atomically installs the key at
 `/var/ossec/etc/edge-google-web-risk.key` with `root:wazuh` ownership and mode
 `0640`.
 
@@ -362,7 +362,7 @@ or endpoint username will be sent to Web Risk.
 
 ## 14. Prepare the Staging Wazuh Manager
 
-Before code implementation begins:
+Before server installation begins:
 
 1. Take a VM/hypervisor snapshot or approved system backup.
 2. Confirm `wazuh-manager` is active and `wazuh-analysisd -t` succeeds.
@@ -373,7 +373,7 @@ Before code implementation begins:
 5. Record the current configurable rule IDs and levels.
 6. Confirm the current ML offline verifier passes.
 7. Confirm outbound HTTPS to `webrisk.googleapis.com:443` is allowed.
-8. Keep the staging API key in the approved vault until the future installer
+8. Keep the staging API key in the approved vault until the installer
    securely prompts for it.
 
 Useful non-mutating checks:
@@ -431,7 +431,7 @@ Implementation can begin when:
 - The current PhishTank state is inventoried and backed up but still active.
 - A staging Wazuh snapshot and rollback owner are available.
 - The API key remains outside the repository and Wazuh until the secure
-  installer is implemented.
+  installer prompts for it.
 
 ## Official References
 

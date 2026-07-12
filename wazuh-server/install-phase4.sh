@@ -12,6 +12,7 @@ PYTHON_WRAPPER_DEST="$WAZUH_HOME/integrations/custom-edge-phishing-classifier.py
 MODULE_DEST="$WAZUH_HOME/integrations/edge_phishing_classifier.py"
 ML_MODULE_DEST="$WAZUH_HOME/integrations/url_ml.py"
 LEGACY_ML_MODULE_DEST="$WAZUH_HOME/integrations/legacy_url_ml.py"
+WEB_RISK_MODULE_DEST="$WAZUH_HOME/integrations/google_web_risk.py"
 CONFIG_DEST="$WAZUH_HOME/etc/edge-phishing-classifier.json"
 CACHE_DIR="$WAZUH_HOME/var/edge-phishing-classifier"
 OSSEC_CONFIG="$WAZUH_HOME/etc/ossec.conf"
@@ -29,7 +30,7 @@ usage() {
   cat <<'USAGE'
 Usage: install-phase4.sh [OPTIONS]
 
-Install the structured Edge-to-PhishTank Wazuh classification integration.
+Install the structured Edge phishing-reputation classification integration.
 
 Options:
   -v, --verbose       Show detailed validation and wazuh-logtest output.
@@ -66,6 +67,7 @@ required=(
   "$SOURCE/edge_phishing_classifier.py"
   "$SOURCE/url_ml.py"
   "$SOURCE/legacy_url_ml.py"
+  "$SOURCE/google_web_risk.py"
   "$OSSEC_CONFIG" "$ANALYSISD" "$LOGTEST"
 )
 if [[ -e "$PIPELINE_RULES" || -e "$POLICY_MANIFEST" ]]; then
@@ -113,7 +115,7 @@ PY
 fi
 
 echo "[1/6] Validating classifier source files..."
-python3 - "$SOURCE/edge_phishing_classifier.py" "$SOURCE/url_ml.py" "$SOURCE/legacy_url_ml.py" <<'PY'
+python3 - "$SOURCE/edge_phishing_classifier.py" "$SOURCE/url_ml.py" "$SOURCE/legacy_url_ml.py" "$SOURCE/google_web_risk.py" <<'PY'
 import ast
 import sys
 from pathlib import Path
@@ -123,6 +125,15 @@ for value in sys.argv[1:]:
 PY
 if [[ -n "$config_source" ]]; then
   python3 -m json.tool "$config_source" >/dev/null
+  PYTHONPATH="$SOURCE" python3 - "$config_source" <<'PY'
+import sys
+from pathlib import Path
+from edge_phishing_classifier import load_settings
+from google_web_risk import read_api_key
+settings = load_settings(Path(sys.argv[1]))
+if settings.reputation_provider == "google_webrisk":
+    read_api_key(settings.web_risk_api_key_file)
+PY
 fi
 
 if [[ "$unified_policy" -eq 0 ]]; then
@@ -139,7 +150,7 @@ fi
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 backup_dir="$WAZUH_HOME/backup/edge-phase4-$timestamp"
 mkdir -p "$backup_dir"
-managed=("$WRAPPER_DEST" "$PYTHON_WRAPPER_DEST" "$MODULE_DEST" "$ML_MODULE_DEST" "$LEGACY_ML_MODULE_DEST" "$CONFIG_DEST")
+managed=("$WRAPPER_DEST" "$PYTHON_WRAPPER_DEST" "$MODULE_DEST" "$ML_MODULE_DEST" "$LEGACY_ML_MODULE_DEST" "$WEB_RISK_MODULE_DEST" "$CONFIG_DEST")
 [[ "$unified_policy" -eq 0 ]] && managed+=("$RULE_DEST")
 for path in "${managed[@]}"; do
   [[ -e "$path" ]] && cp -a -- "$path" "$backup_dir/"
@@ -175,6 +186,7 @@ install -o root -g wazuh -m 0640 "$SOURCE/custom-edge-phishing-classifier" "$PYT
 install -o root -g wazuh -m 0640 "$SOURCE/edge_phishing_classifier.py" "$MODULE_DEST"
 install -o root -g wazuh -m 0640 "$SOURCE/url_ml.py" "$ML_MODULE_DEST"
 install -o root -g wazuh -m 0640 "$SOURCE/legacy_url_ml.py" "$LEGACY_ML_MODULE_DEST"
+install -o root -g wazuh -m 0640 "$SOURCE/google_web_risk.py" "$WEB_RISK_MODULE_DEST"
 if [[ "$unified_policy" -eq 0 ]]; then
   install -o root -g wazuh -m 0640 "$SOURCE/edge_phishing_classification_rules.xml" "$RULE_DEST"
 else
@@ -188,6 +200,16 @@ else
   log_verbose "Preserved existing classifier config $CONFIG_DEST"
 fi
 
+PYTHONPATH="$WAZUH_HOME/integrations" python3 - "$CONFIG_DEST" <<'PY'
+import sys
+from pathlib import Path
+from edge_phishing_classifier import load_settings
+from google_web_risk import read_api_key
+settings = load_settings(Path(sys.argv[1]))
+if settings.reputation_provider == "google_webrisk":
+    read_api_key(settings.web_risk_api_key_file)
+PY
+
 if [[ "$unified_policy" -eq 1 ]]; then
   CONFIG_DEST="$CONFIG_DEST" POLICY_MANIFEST="$POLICY_MANIFEST" python3 - <<'PY'
 import json
@@ -198,6 +220,12 @@ config_path = Path(os.environ["CONFIG_DEST"])
 policy_path = Path(os.environ["POLICY_MANIFEST"])
 config = json.loads(config_path.read_text(encoding="utf-8"))
 policy = json.loads(policy_path.read_text(encoding="utf-8"))
+configured_provider = config.get("reputation", {}).get("provider", "phishtank").replace("-", "_")
+policy_provider = policy.get("reputation_provider", "phishtank").replace("-", "_")
+if configured_provider != policy_provider:
+    raise SystemExit(
+        f"classifier provider {configured_provider} does not match rule provider {policy_provider}"
+    )
 config["navigation_rule_id"] = str(int(policy["navigation_rule_id"]))
 config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 PY
@@ -217,6 +245,19 @@ print(rule_id)
 PY
 )"
 log_verbose "Classifier will trigger from navigation rule $navigation_rule_id"
+
+reputation_provider="$(CONFIG_DEST="$CONFIG_DEST" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+value = json.loads(Path(os.environ["CONFIG_DEST"]).read_text(encoding="utf-8"))
+provider = value.get("reputation", {}).get("provider", "phishtank").replace("-", "_")
+if provider not in {"phishtank", "google_webrisk"}:
+    raise SystemExit("reputation.provider must be phishtank or google_webrisk")
+print(provider)
+PY
+)"
+log_verbose "Classifier reputation provider is $reputation_provider"
 
 echo "[3/6] Registering custom integration in ossec.conf..."
 OSSEC_CONFIG="$OSSEC_CONFIG" MARKER_BEGIN="$MARKER_BEGIN" MARKER_END="$MARKER_END" NAVIGATION_RULE_ID="$navigation_rule_id" python3 - <<'PY'
@@ -266,7 +307,7 @@ if ! systemctl restart wazuh-manager || ! systemctl is-active --quiet wazuh-mana
   exit 1
 fi
 
-sample='{"integration":"edge-phishing-classifier","schema_version":1,"classification":{"status":"malicious","malicious":true,"source":"phishtank","url":"https://example.test/phish","url_host":"example.test","source_event_id":"phase4-test"}}'
+sample="{\"integration\":\"edge-phishing-classifier\",\"schema_version\":1,\"classification\":{\"status\":\"malicious\",\"malicious\":true,\"source\":\"$reputation_provider\",\"threat_types\":[\"SOCIAL_ENGINEERING\"],\"url\":\"https://example.test/phish\",\"url_host\":\"example.test\",\"source_event_id\":\"phase4-test\"}}"
 phishtank_expectation='100111:10:json'
 if [[ "$unified_policy" -eq 1 ]]; then
   phishtank_expectation="$(POLICY_MANIFEST="$POLICY_MANIFEST" python3 - <<'PY'
@@ -293,10 +334,10 @@ fi
 transaction_active=0
 trap - ERR
 
-echo "Phase 4 PhishTank integration installed successfully."
+echo "Phase 4 reputation integration installed successfully (provider: $reputation_provider)."
 echo "Backup: $backup_dir"
 if [[ "$unified_policy" -eq 1 ]]; then
-  echo "Routine negative alerts are suppressed. Use verification/verify-phishtank-integration.py with a currently verified PhishTank URL."
+  echo "Routine negative alerts are suppressed. Use the verification script for the selected provider when a live lookup is required."
 else
   echo "Open a fresh Edge URL and verify its source event ID with verification/verify-classification-event.sh."
 fi
