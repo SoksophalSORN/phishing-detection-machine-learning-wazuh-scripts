@@ -8,6 +8,14 @@ C:\ProgramData\PhishingDetection\browser-navigation.json
 
 It acknowledges an event only after the log record has been flushed to disk. It rotates at 10 MiB and retains three rotated files.
 
+## Supported Scope
+
+The supplied executable, PowerShell installer, registry path, ACLs, and log
+location target Windows 10 x64 and Microsoft Edge. Chrome, Brave, Firefox,
+Windows 11, and Linux native-messaging registration are not implemented or
+tested. Ubuntu is supported elsewhere in this repository only as the Wazuh
+manager.
+
 ## Build on Windows
 
 The repository includes `dist\navigation-host.exe` for the Windows x64 pilot. To reproduce it from source, install Go and run PowerShell:

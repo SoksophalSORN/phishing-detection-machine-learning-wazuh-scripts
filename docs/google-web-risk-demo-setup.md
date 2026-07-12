@@ -17,9 +17,9 @@ and rollback preparation, use the
   key to that server. This restriction is recommended but optional for a short
   isolated demo.
 
-Do not manually disable PhishTank. Creating a Web Risk key does not modify
-Wazuh. The implemented installer handles the provider switch as a validated
-transaction.
+Do not disable PhishTank yet. Creating a Web Risk key does not modify Wazuh.
+The future installer will handle the provider switch after the implementation
+is ready.
 
 ## 1. Create a Google Cloud Project
 
@@ -96,7 +96,7 @@ Do not store the key in:
 - A shell command or shell history.
 - Screenshots, tickets, or chat messages.
 
-The server installer uses a hidden prompt and installs the key in a
+The future installer will use a hidden prompt and install the key in a
 root-controlled file. Nothing needs to be added to `/var/ossec` yet.
 
 ## 7. Optional One-Call Test
@@ -139,7 +139,7 @@ PY
 ```
 
 A successful test returns HTTP `200` with a `threat` object containing
-`MALWARE`. This verifies the key and API connectivity. The phishing
+`MALWARE`. This verifies the key and API connectivity. The planned phishing
 integration will normally request `SOCIAL_ENGINEERING` instead.
 
 Common errors:
@@ -151,8 +151,8 @@ Common errors:
 
 ## 8. Keep or Delete the Key
 
-If installation will begin soon, leave the restricted key in the password
-manager until the installer prompts for it.
+If implementation will begin soon, leave the restricted key in the password
+manager until the installer is ready.
 
 If the experiment is finished:
 
@@ -170,14 +170,7 @@ You are ready when:
 - The API key is restricted to Web Risk.
 - The optional IP restriction matches the Wazuh public egress.
 - The one-call test succeeds, or the key is securely stored for later testing.
-- The key is ready to enter through `--web-risk-key-prompt`.
-
-Install the complete staging pipeline with:
-
-```bash
-sudo bash ./wazuh-server/install-wazuh-server.sh --environment staging \
-  --reputation-provider google-webrisk --web-risk-key-prompt -v
-```
+- PhishTank remains unchanged until the Web Risk installer is implemented.
 
 ## Official References
 

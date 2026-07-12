@@ -2,6 +2,14 @@
 
 This unpacked Manifest V3 extension captures top-level HTTP/HTTPS navigation in Microsoft Edge and sends versioned events to the `com.phishing_detection.navigation` native host.
 
+## Supported Scope
+
+This pilot is implemented and tested for Microsoft Edge on Windows 10 x64.
+Chrome, Brave, Firefox, Windows 11, and Linux endpoints are not currently
+supported or tested. The extension is sideloaded through Developer mode and is
+not published in the Microsoft Edge Add-ons store. It detects committed
+navigation but does not block a page from loading.
+
 ## Install for the Pilot
 
 1. Build the native host, or use the supplied Windows x64 pilot executable, as described in [`../native-host/README.md`](../native-host/README.md).

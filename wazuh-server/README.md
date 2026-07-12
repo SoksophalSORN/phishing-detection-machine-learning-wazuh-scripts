@@ -1,599 +1,432 @@
-# Wazuh Server Phishing Pipeline
+# Ubuntu Wazuh Server Phishing Pipeline
 
-This directory covers Phase 3 transport verification, Phase 4 classification,
-and the final configurable rule policy.
+This directory installs the manager side of the Microsoft Edge navigation
+pipeline. It receives structured events forwarded by a Windows Wazuh agent,
+checks each URL with one selected reputation provider, optionally runs ML, and
+emits provider-specific Wazuh alerts.
 
-## Recommended Complete Server Installation
+Use `install-wazuh-server.sh` for staging and production. The individual Phase
+3 and Phase 4 scripts remain available for historical migration and component
+diagnostics, but they are not the recommended deployment workflow.
 
-For a new Wazuh manager, use the complete installer instead of running the
-historical phase scripts individually:
+## Supported Scope
 
-```bash
-cd /path/to/phishing-detection-machine-learning-wazuh-scripts
-sudo bash ./wazuh-server/install-wazuh-server.sh --environment production -v
-```
+- Ubuntu Wazuh manager installed under `/var/ossec` by default.
+- Windows 10 x64 endpoint running the project’s Microsoft Edge extension,
+  native host, and enrolled Wazuh agent.
+- Google Web Risk or PhishTank as mutually exclusive reputation providers.
+- The included original scaler/SVR through legacy compatibility mode, or an
+  optional trusted modern model bundle.
 
-When the repository root contains the supplied `model.joblib` and
-`scaler.joblib`, they are selected automatically in original-model
-compatibility mode. The complete installer performs the following sequence:
-
-1. Scans Wazuh's active rules and installs the configurable navigation and
-   classification policy.
-2. Installs and registers the structured Edge phishing classifier.
-3. Validates and installs the trusted model and scaler.
-4. Forces a reputation-negative result and exercises ML entirely offline.
-5. Confirms the selected ML Wazuh rule and validates the running manager.
-
-It takes a pre-installation snapshot of every managed rule, configuration,
-integration, and model file. If any stage fails, the complete pre-installation
-state is restored and the manager is restarted. Child installers retain their
-own narrower backups as additional recovery points.
-
-The secure default disables the original model's WHOIS and page-derived network
-features. Explicitly enable their guarded compatibility implementation only if
-that server-side retrieval risk is accepted:
-
-```bash
-sudo bash ./wazuh-server/install-wazuh-server.sh \
-  --enable-legacy-network-features -v
-```
-
-Use the integrated rule wizard when existing local rules or organizational
-severity policy require custom IDs, levels, or Wazuh group names:
-
-```bash
-sudo bash ./wazuh-server/install-wazuh-server.sh \
-  --environment production --wizard -v
-```
-
-Every wizard value can also be supplied non-interactively. For example:
-
-```bash
-sudo bash ./wazuh-server/install-wazuh-server.sh --environment production -v \
-  --group-name browser_navigation,phishing_detection \
-  --preferred-start 100300 \
-  --navigation-rule-id 100300 --navigation-level 5 \
-  --classification-base-rule-id 100301 --classification-base-level 0 \
-  --phishtank-rule-id 100302 --phishtank-level 10 \
-  --ml-rule-id 100303 --ml-level 9 \
-  --error-rule-id 100304 --error-level 5 \
-  --negative-rule-id 100305 --negative-level 0
-```
-
-For a different trusted artifact, supply `--model`; add `--legacy-scaler` only
-for an original SVR/scaler pair. `--threshold` overrides the decision threshold.
-An optional PhishTank key can be entered without exposing it in shell history:
-
-```bash
-sudo bash ./wazuh-server/install-wazuh-server.sh \
-  --api-key-prompt -v
-```
-
-The installation proves the local PhishTank classification contract and Wazuh
-rule with a synthetic result. It does not require the external PhishTank API to
-be reachable during installation. A later API outage or Cloudflare challenge
-is reported by the configured classifier-error rule and is operational state,
-not an installation rollback condition.
-
-Google Web Risk is implemented as an alternative reputation solution, not a
-simultaneous second lookup. Install or switch to it with:
-
-```bash
-sudo bash ./wazuh-server/install-wazuh-server.sh --environment production \
-  --reputation-provider google-webrisk --web-risk-key-prompt -v
-```
-
-`SOCIAL_ENGINEERING` is requested by default. Add either optional category by
-repeating `--web-risk-threat-type`, for example:
-
-```bash
-sudo bash ./wazuh-server/install-wazuh-server.sh --environment staging \
-  --reputation-provider google-webrisk --web-risk-key-prompt \
-  --web-risk-threat-type SOCIAL_ENGINEERING \
-  --web-risk-threat-type MALWARE -v
-```
-
-The key is stored at `/var/ossec/etc/edge-google-web-risk.key` as
-`root:wazuh` mode `0640`; it is not stored in the classifier JSON or shell
-history. The installer first backs up the managed state. When changing
-providers, it removes the active managed integration and rules, validates and
-restarts Wazuh in that disabled state, and only then configures the selected
-provider. It aborts if active unmanaged PhishTank rules or integrations remain.
-Exactly one reputation provider may be active.
-
-For automation, `--web-risk-key-file /protected/key` copies a pre-staged key;
-do not put the key itself on the command line. Optional controls include
-`--web-risk-monthly-limit` (default `90000`) and
-`--web-risk-negative-cache-seconds` (default `300`). Provider-neutral rule
-aliases `--reputation-rule-id` and `--reputation-level` coexist with the older
-PhishTank-named flags for compatibility.
-
-Installation uses only synthetic rule results and makes no live Web Risk call.
-After installation, make one explicit acceptance lookup (which can consume API
-quota) with:
-
-```bash
-sudo python3 ./wazuh-server/verification/verify-web-risk-integration.py \
-  --url 'http://testsafebrowsing.appspot.com/s/phishing.html' --wait 60
-```
-
-The verifier submits the string only to Web Risk; it does not open or download
-the target. An empty result means `not_found`, never “safe,” and proceeds to the
-configured ML fallback. See the
-[Google Web Risk integration plan](../docs/google-web-risk-integration-plan.md).
-
-The integration launcher keeps TLS verification enabled and automatically
-selects the operating system CA bundle when Wazuh's embedded Python points at a
-missing `/usr/local/ssl` trust store. An explicitly configured `SSL_CERT_FILE`
-is preserved. Web Risk `expireTime` values are parsed as RFC 3339 with up to
-nanosecond precision for compatibility with Google protobuf timestamps and the
-Wazuh Python 3.10 runtime.
-
-This script installs only the Ubuntu Wazuh-manager side. The Edge extension,
-Windows native host, and Windows Wazuh-agent `localfile` configuration must
-already be deployed using their respective instructions.
-
-For staging, use:
-
-```bash
-sudo bash ./wazuh-server/install-wazuh-server.sh --environment staging -v
-```
-
-The staging profile changes the routine negative/unknown classification level
-from `0` to `3`, making successful fallback processing visible during
-acceptance testing. Production restores it to `0`. Both profiles retain the
-configured level-5 navigation rule because it triggers the classifier.
-The chosen server profile is persisted in root-controlled
-`/var/ossec/etc/edge-phishing-deployment.json`.
-
-## Phase 3: Server Receipt and Pilot Alert
-
-Phase 3 proves that the Edge navigation event crosses the complete transport boundary:
-
-```text
-Edge -> native host -> JSONL -> Windows Wazuh agent -> Ubuntu Wazuh manager -> alert
-```
-
-It installs a temporary level-3 rule for every valid navigation. This deliberate pilot noise makes transport easy to verify. Phase 4 should replace or lower this rule so ordinary browsing does not remain a security alert.
+Linux is supported here as the Wazuh server. Linux browser/endpoint capture and
+Chrome, Brave, and Firefox support are not implemented by this repository.
 
 ## Prerequisites
 
-- Phase 1 writes valid navigation JSONL records.
-- Phase 2 reports that the Windows Wazuh agent analyzes the JSONL file.
-- The Windows agent is enrolled and connected to this Ubuntu manager.
-- This `wazuh-server` directory is available on the Ubuntu server.
+- `wazuh-manager` is installed and running.
+- The Windows agent is enrolled and connected.
+- The Edge native host is writing valid JSONL events and the Windows agent is
+  collecting them.
+- This repository is present on the manager.
+- `model.joblib` and `scaler.joblib` are present in the repository root unless
+  another trusted model is supplied explicitly.
+- For Google Web Risk, create a restricted key using the
+  [demo setup](../docs/google-web-risk-demo-setup.md). Do not store the key in
+  `.env`, Git, command arguments, or shell history.
 
-## Install
-
-On the Ubuntu Wazuh server:
-
-```bash
-cd /path/to/phishing-detection-machine-learning-wazuh-scripts
-chmod +x wazuh-server/*.sh
-sudo ./wazuh-server/install-phase3.sh
-```
-
-For full diagnostics, including the sample event and verbose `wazuh-logtest` output:
+Check the manager before installation:
 
 ```bash
-sudo ./wazuh-server/install-phase3.sh -v
+sudo systemctl is-active wazuh-manager
+sudo /var/ossec/bin/wazuh-analysisd -t
 ```
 
-Display help without installing anything:
-
-```bash
-bash ./wazuh-server/install-phase3.sh -h
-```
-
-The installer:
-
-- Rejects rule ID `100100` if another custom file already uses it.
-- Backs up an existing Phase 3 rule.
-- Installs `/var/ossec/etc/rules/edge_navigation_rules.xml` as `root:wazuh`, mode `0640`.
-- Runs `wazuh-analysisd -t`.
-- Uses `wazuh-logtest -U 100100:3:json` against a representative event.
-- Restarts `wazuh-manager` and rolls back if validation or restart fails.
-
-Rule `100100` is a narrowly filtered child of built-in rule `86600`. Wazuh's built-in JSON rules route records containing `timestamp` and `event_type` through that tree; the child additionally requires this pilot's schema, source, browser, and URL fields.
-
-Wazuh recommends IDs `100000` through `120000` for custom rules and recommends placing larger custom rule sets under `/var/ossec/etc/rules/`.
-
-## Verify a Real Edge Event
-
-After installation:
-
-1. Open a fresh URL in Edge.
-2. Open the last JSONL line on Windows and copy its `event_id`.
-3. On Ubuntu, run:
-
-```bash
-sudo ./wazuh-server/verification/verify-navigation-ingestion.sh \
-  --event-id "PASTE_EVENT_ID" \
-  --wait 60
-```
-
-Successful output includes:
-
-```text
-[PASS] wazuh-manager is active.
-[PASS] Phase 3 rule file exists.
-[PASS] wazuh-analysisd accepts the manager rules and configuration.
-[PASS] Sample Edge JSON matches rule 100100 through decoder json.
-[PASS] Event ... reached the manager and generated rule 100100 alert data.
-```
-
-The matching alert is stored in:
-
-```text
-/var/ossec/logs/alerts/alerts.json
-```
-
-In the dashboard, search for either:
-
-```text
-rule.id: 100100
-```
-
-or the copied event ID. Exact dashboard field syntax can vary by Wazuh dashboard/index-template version; the server-side verification script is the authoritative pilot check.
-
-If the event appears in `archives.json` but not `alerts.json`, transport succeeded and rule matching needs investigation. Archives are not necessarily enabled, so an absent archive file alone is not proof of transport failure.
-
-## Remove the Phase 3 Rule
-
-```bash
-sudo ./wazuh-server/uninstall-phase3.sh
-```
-
-The script retains a timestamped copy next to the removed rule and restores it automatically if the manager cannot restart.
-
-## Original Implementation Cleanup
-
-Before Phase 4, disable the old Chrome/Sysmon command-line integration so a browser event is not processed twice. Follow:
-
-[Cleanup of the Original Sysmon/Command-Line Implementation](cleanup-original-implementation.md)
-
-Start with the read-only audit:
-
-```bash
-sudo ./wazuh-server/audit-original-installation.sh
-```
-
-## Proceed to Phase 4
-
-After a real event passes `verify-navigation-ingestion.sh`, install the structured PhishTank classifier:
-
-```bash
-sudo bash ./wazuh-server/install-phase4.sh -v
-```
-
-An API key is optional but strongly recommended because PhishTank applies a
-lower request limit without one. The safest installation path prompts without
-putting the key in shell history:
-
-```bash
-sudo bash ./wazuh-server/install-phase4.sh -v --api-key-prompt
-```
-
-Alternatively, copy and edit the provided configuration:
-
-```bash
-cp wazuh-server/phase4/config.json /tmp/edge-phishing-classifier.json
-nano /tmp/edge-phishing-classifier.json
-sudo bash ./wazuh-server/install-phase4.sh -v \
-  --config /tmp/edge-phishing-classifier.json
-```
-
-Open a fresh URL in Edge, copy its navigation `event_id`, and verify the classification result:
-
-```bash
-sudo bash ./wazuh-server/verification/verify-classification-event.sh \
-  --source-event-id "PASTE_EVENT_ID" \
-  --wait 60
-```
-
-The compatibility Phase 4 rules use level `10` for confirmed PhishTank URLs,
-level `9` for ML suspicion, level `5` for processing errors, and a temporary
-level `3` for negative/unknown pilot results. Run the configurable policy
-installer below to move to the final rule range and suppress those routine
-negative alerts at level `0`.
-
-## Install the Final Configurable Rule Policy
-
-The configurator scans active XML rules in `/var/ossec/etc/rules` and
-`/var/ossec/ruleset/rules`. XML comments do not reserve IDs. With no conflicts,
-the default policy is:
-
-| Purpose | Rule ID | Level |
-|---|---:|---:|
-| Edge URL observed | `100300` | `5` |
-| Classification base | `100301` | `0` |
-| Confirmed reputation URL | `100302` | `10` |
-| ML-suspicious URL | `100303` | `9` |
-| Classifier error | `100304` | `5` |
-| Negative/unknown result | `100305` | `0` |
-
-These levels preserve the original project's navigation, reputation, and ML
-severities while suppressing routine negative-result alerts. If any default ID
-is active elsewhere, the tool selects the first free contiguous range. It
-rejects collisions for explicitly supplied IDs.
-
-Preview generated XML without changing Wazuh:
-
-```bash
-python3 ./wazuh-server/configure-rules.py > /tmp/edge-phishing-policy.xml
-```
-
-Run the interactive wizard and install atomically:
-
-```bash
-sudo python3 ./wazuh-server/configure-rules.py --wizard --install -v
-```
-
-The wizard asks for the group/block name and every rule ID and alert level. A
-group may be a single Wazuh name or a comma-separated list such as
-`gmail,phishing`; each component may contain letters, digits, `_`, `.`, or `-`.
-The default is `browser_navigation,phishing_detection`. Press Enter at a prompt
-to accept the scanned default.
-
-The same policy can be installed non-interactively. For example:
-
-```bash
-sudo python3 ./wazuh-server/configure-rules.py --install -v \
-  --group-name browser_navigation,phishing \
-  --preferred-start 100300 \
-  --navigation-rule-id 100300 --navigation-level 5 \
-  --classification-base-rule-id 100301 --classification-base-level 0 \
-  --phishtank-rule-id 100302 --phishtank-level 10 \
-  --ml-rule-id 100303 --ml-level 9 \
-  --error-rule-id 100304 --error-level 5 \
-  --negative-rule-id 100305 --negative-level 0
-```
-
-Installation writes a unified rule file and a JSON policy manifest, backs up
-the managed Phase 3/4 rules and configuration, updates both the classifier's
-source rule and the `<integration>` trigger, validates the configuration,
-restarts the manager, and then runs three rule tests against the refreshed
-analysisd session manager. A failed validation, restart, or rule test restores
-the backup and restarts the restored configuration.
-
-## Safely Test a Confirmed-Phishing Alert
-
-Choose a URL that PhishTank currently marks as verified and active. Do not open
-it in Edge. Submit it directly to the installed classifier:
-
-```bash
-sudo python3 ./wazuh-server/verification/verify-phishtank-integration.py \
-  --url 'https://verified-test-url.example/path' --wait 60
-```
-
-The script creates a unique synthetic source event, sends the URL only to the
-classifier/PhishTank flow, and succeeds only when the resulting classification
-status is `malicious`. A `not_found` response is not proof that a URL is safe.
-
-## Original Model Compatibility Mode
-
-The original root-level `model.joblib` and `scaler.joblib` can be connected to
-the modern Edge event pipeline without retraining. The compatibility adapter:
-
-- Recreates the original 15-feature order.
-- Applies the original `StandardScaler` before the original RBF SVR.
-- Treats the absolute SVR regression output as an uncalibrated raw score.
-- Defaults to a raw-score threshold of `0.5`.
-- Marks every result as `model_kind: legacy_svr`, `calibrated: false`, and
-  `compatibility_mode: true`.
-- Preserves the configured level-9 ML Wazuh rule.
-
-The original model was serialized by scikit-learn 1.0.2. The Python runtime
-used by the Wazuh integration must have compatible NumPy, joblib and
-scikit-learn packages. Some Wazuh embedded Python builds omit `_posixshmem`,
-which prevents joblib from importing even when it was installed successfully.
-The legacy adapter installs a narrow import shim for serial model loading and
-prediction. Shared-memory and parallel joblib operations remain unavailable;
-the classifier does not use them. Rerun Phase 4 to install the adapter and the
-launcher before enabling the model:
-
-```bash
-sudo bash ./wazuh-server/install-phase4.sh -v
-```
-
-The model installer automatically selects the Wazuh interpreter when joblib,
-scikit-learn and NumPy can import through that compatibility layer.
-
-Alternatively, a dedicated virtual environment can be used, but it must be
-built from a complete Python 3.10 interpreter. Python 3.14 cannot install the
-NumPy/scikit-learn versions required by this artifact:
-
-```bash
-sudo bash ./wazuh-server/install-ml-runtime.sh \
-  --python /path/to/python3.10 -v
-```
-
-An offline wheel directory can additionally be supplied with
-`--wheelhouse /path/to/wheels`.
-
-After Phase 4 is updated, install the two original artifacts together:
-
-```bash
-sudo python3 ./wazuh-server/install-ml-model.py \
-  --model ./model.joblib \
-  --legacy-scaler ./scaler.joblib \
-  --threshold 0.5 -v
-```
-
-Installation validates both artifacts before changing Wazuh, copies them to
-root-controlled files under `/var/ossec/etc`, enables `legacy_svr` mode,
-restarts the manager, and rolls back on failure.
-
-Refresh the unified ML rule description while preserving the IDs and levels
-already stored in the installed policy manifest:
-
-```bash
-sudo python3 ./wazuh-server/configure-rules.py --install -v
-```
-
-When a policy manifest exists, omitted options reuse its values. Supplying
-`--preferred-start` explicitly requests a fresh automatic allocation instead.
-
-By default the adapter attempts the original WHOIS and page-derived features.
-It restricts page requests to public HTTP/HTTPS destinations, rejects embedded
-credentials and non-public IP addresses, rechecks redirects, limits redirects
-and response size, and enforces timeouts. These controls reduce but do not
-eliminate the risks of manager-side URL retrieval.
-
-To avoid all WHOIS/page requests and use the original extractor's failure
-defaults for those seven features, install with:
-
-```bash
-sudo python3 ./wazuh-server/install-ml-model.py \
-  --model ./model.joblib \
-  --legacy-scaler ./scaler.joblib \
-  --threshold 0.5 \
-  --disable-legacy-network-features -v
-```
-
-Test the installed scaler, SVR, forced PhishTank-negative fallback, and chosen
-Wazuh rule without opening the target or making a network request:
-
-```bash
-sudo python3 ./wazuh-server/verification/verify-ml-integration.py \
-  --url 'https://controlled-test.example/login' -v
-```
-
-The first run reports whether the raw score is `suspicious` or `unlikely`.
-After observing the expected result, add `--expect suspicious` or
-`--expect unlikely` for repeatable acceptance testing.
-
-### Test an Unverified PhishTank Candidate List
-
-PhishTank's downloadable `online-valid` feeds contain only verified, online
-entries. To evaluate unverified candidates, export or curate a local list from
-PhishTank's unverified/online search results. A CSV can preserve the submission
-ID and verification state:
-
-```csv
-phish_id,url,verified
-12345678,https://suspected-example.test/login,no
-```
-
-Do not open the candidate URLs. Score the local list offline instead:
-
-```bash
-sudo python3 ./wazuh-server/tools/evaluate-ml-list.py \
-  --input /path/to/unverified-phish.csv \
-  --output /tmp/unverified-ml-results.jsonl \
-  --limit 500 -v
-```
-
-CSV, JSON, JSONL, and one-URL-per-line text inputs are supported. For structured
-input containing a `verified` field, the command accepts only explicit values
-such as `no`, `false`, `0`, `u`, or `unverified`; verified and unknown rows are
-skipped. Use `--url-column`, `--id-column`, or `--verified-column` when an export
-uses different field names. Plain text and structured files without a
-verification field are treated as operator-curated unverified lists and produce
-a warning.
-
-The test forces a local PhishTank-negative result and disables legacy WHOIS and
-page features. It therefore makes no request to PhishTank or any listed host,
-and it does not inject alerts into Wazuh. Results are written as mode-`0600`
-JSONL. `suspicious_fraction` is useful for comparing a fixed model and threshold
-between test runs, but it is not recall or accuracy because unverified entries
-are suspected candidates rather than confirmed labels. Use `--fail-under 0.5`
-only after establishing a project-specific baseline for a stable saved dataset.
-
-The score must not be interpreted as a percentage or calibrated probability.
-The original training extractor made its IP-address feature effectively
-constant, and unavailable WHOIS/page features fall back to suspicious defaults;
-these limitations cannot be corrected without retraining.
-
-## Alternative Modern URL-Only ML Model
-
-The repository also supports a new calibrated URL-only model that performs no
-page download, DNS lookup, WHOIS lookup, or arbitrary outbound request. This is
-optional and is not required when using the original compatibility mode.
-
-The repository intentionally does not contain a replacement training dataset.
-To use the optional modern mode, prepare a reviewed
-CSV containing `url,label` columns (`0` benign, `1` phishing), for example:
-
-```csv
-url,label
-https://known-benign.example/,0
-https://reviewed-phishing.example/login,1
-```
-
-Train in an environment whose joblib and scikit-learn versions are also
-available to the `python3` runtime used by the Wazuh integration:
-
-```bash
-python3 -m venv /tmp/edge-url-ml-venv
-/tmp/edge-url-ml-venv/bin/pip install joblib scikit-learn
-/tmp/edge-url-ml-venv/bin/python \
-  ./wazuh-server/phase4/train_url_model.py \
-  --input /path/to/reviewed-urls.csv \
-  --output /tmp/edge-url-model.joblib \
-  --model-version pilot-2026-01 --threshold 0.80
-```
-
-Install `joblib` and the matching scikit-learn runtime for the Python used by
-the Wazuh integration. Only load a trusted, root-controlled model artifact;
-joblib model files are executable deserialization formats. The model installer
-loads the artifact with that runtime, checks its format, feature schema,
-version, probability and threshold, installs it as `root:wazuh` mode `0640`,
-enables ML atomically, restarts Wazuh, and rolls back on failure:
-
-```bash
-sudo python3 ./wazuh-server/install-ml-model.py \
-  --model /tmp/edge-url-model.joblib -v
-```
-
-To override the trained threshold, add `--threshold 0.85`. Omitting the option
-stores `null` in `/var/ossec/etc/edge-phishing-classifier.json` and uses the
-threshold bundled with the model:
-
-```json
-"ml": {
-  "enabled": true,
-  "model_path": "/var/ossec/etc/edge-url-model.joblib",
-  "threshold": null
-}
-```
-
-`null` uses the threshold stored with the trained artifact. ML runs only when
-PhishTank has not confirmed the URL as active phishing. It emits `suspicious`
-or `unlikely`; it never changes a confirmed PhishTank result.
-
-Test the installed modern artifact, forced PhishTank-negative fallback, and
-the configured Wazuh ML/negative rule without opening the target or making any
-network request:
-
-```bash
-sudo python3 ./wazuh-server/verification/verify-ml-integration.py \
-  --url 'https://controlled-test.example/login' -v
-```
-
-The command reports the actual model score and status. After observing it, use
-`--expect suspicious` or `--expect unlikely` in repeatable acceptance tests.
-This isolated test proves the fallback and rule; a subsequent controlled Edge
-navigation proves the complete browser-to-ML path.
-
-## Privacy, Retention, and Legacy Cleanup
-
-The extension and native host remove fragments and embedded credentials,
-redact common secret query parameters, and redact search terms on common
-search-engine hosts. Rule descriptions contain `url_host`, not the complete
-URL. The normalized URL remains in structured event data because both
-PhishTank and the URL-only model require it.
-
-The endpoint JSONL rotates at 10 MiB and retains three rotated files. Wazuh
-server/index retention is controlled separately by the deployment's indexer
-and archival policies; set that retention according to the pilot's privacy and
-incident-response requirements.
-
-After the configurable pipeline passes the real and synthetic tests, run the
-read-only legacy audit and follow the cleanup guide:
+If the original fork’s Sysmon/browser-command-line implementation is installed,
+run the read-only audit and follow the cleanup guide first:
 
 ```bash
 sudo bash ./wazuh-server/audit-original-installation.sh
 ```
 
-[Cleanup of the Original Sysmon/Command-Line Implementation](cleanup-original-implementation.md)
+[Original implementation cleanup](cleanup-original-implementation.md)
+
+## Recommended Staging Installation
+
+Staging raises routine negative or unlikely results to level 3 so the complete
+fallback path is visible during acceptance. Start there before production.
+
+### Google Web Risk
+
+```bash
+sudo bash ./wazuh-server/install-wazuh-server.sh \
+  --environment staging \
+  --reputation-provider google-webrisk \
+  --web-risk-key-prompt \
+  -v
+```
+
+The key is entered without echo and installed at:
+
+```text
+/var/ossec/etc/edge-google-web-risk.key
+```
+
+It is stored as `root:wazuh`, mode `0640`, separately from the JSON
+configuration. For automation, `--web-risk-key-file /protected/key` copies a
+pre-staged secret; the key itself must never be passed as an argument.
+
+`SOCIAL_ENGINEERING` is requested by default. Optional categories can be
+selected by repeating the option:
+
+```bash
+sudo bash ./wazuh-server/install-wazuh-server.sh \
+  --environment staging \
+  --reputation-provider google-webrisk \
+  --web-risk-key-prompt \
+  --web-risk-threat-type SOCIAL_ENGINEERING \
+  --web-risk-threat-type MALWARE \
+  -v
+```
+
+Supported Web Risk categories are `SOCIAL_ENGINEERING`, `MALWARE`, and
+`UNWANTED_SOFTWARE`. Optional application controls include:
+
+```text
+--web-risk-monthly-limit NUMBER
+--web-risk-negative-cache-seconds NUMBER
+```
+
+Defaults are a 90,000-call monthly application limit and a 300-second negative cache.
+Positive matches are cached until Google’s returned `expireTime`.
+
+### PhishTank Alternative
+
+```bash
+sudo bash ./wazuh-server/install-wazuh-server.sh \
+  --environment staging \
+  --reputation-provider phishtank \
+  -v
+```
+
+Anonymous operation remains possible. Add `--api-key-prompt` only when a
+PhishTank application key is available.
+
+PhishTank and Google Web Risk are never active together. On an explicit
+provider change, the complete installer backs up the current deployment,
+removes the managed integration and provider rule, validates and restarts Wazuh
+in the provider-disabled state, and only then installs the new provider. It
+aborts when unmanaged active PhishTank rules or integrations would conflict.
+
+## What the Complete Installer Does
+
+The installer:
+
+1. Detects or explicitly selects one reputation provider.
+2. Scans active Wazuh rules and allocates a free custom-rule range.
+3. Installs the unified navigation and classification rule policy.
+4. Installs and registers the provider-neutral classifier.
+5. Installs the Web Risk client and system-CA handling regardless of which
+   provider is selected, leaving only the selected provider active.
+6. Validates and installs the trusted model and scaler.
+7. Exercises reputation-negative ML fallback without a network request.
+8. Validates the final provider configuration and active rule source.
+9. Restarts Wazuh and records the deployment manifest.
+
+Before making changes, it snapshots managed rules, configuration, integration
+modules, model files, provider key, and cache state under `/var/ossec/backup`.
+Failure restores the pre-installation state and restarts the manager.
+
+The installer makes no live Web Risk or PhishTank request. External provider
+availability is tested separately after local configuration succeeds.
+
+## ML Runtime and Included Model
+
+When `model.joblib` and `scaler.joblib` are present in the repository root, the
+complete installer selects them automatically and enables `legacy_svr` mode.
+The compatibility adapter:
+
+- Preserves the original 15-feature ordering.
+- Applies the original `StandardScaler` before the RBF SVR.
+- Treats the SVR output as an uncalibrated raw score, not a probability.
+- Uses a default threshold of `0.5` unless overridden.
+- Labels output with `model_kind: legacy_svr`, `calibrated: false`, and
+  `compatibility_mode: true`.
+
+The complete installer disables legacy WHOIS and page-derived network features
+by default. This avoids arbitrary manager-side retrieval. Enable the guarded
+compatibility implementation only when that risk is explicitly accepted:
+
+```bash
+sudo bash ./wazuh-server/install-wazuh-server.sh \
+  --environment staging \
+  --reputation-provider google-webrisk \
+  --web-risk-key-prompt \
+  --enable-legacy-network-features \
+  -v
+```
+
+If model validation reports that joblib/scikit-learn is unavailable, create a
+dedicated runtime from a complete Python 3.10 interpreter:
+
+```bash
+sudo bash ./wazuh-server/install-ml-runtime.sh \
+  --python /usr/bin/python3.10 \
+  -v
+```
+
+Use the actual Python 3.10 path on the server. An offline wheel directory can
+be supplied with `--wheelhouse /path/to/wheels`. The original artifact was
+serialized by scikit-learn 1.0.2; Python 3.14 is not a compatible replacement
+runtime for that artifact.
+
+The Wazuh embedded Python can omit `_posixshmem`; the compatibility adapter
+provides only the narrow shim required for serial loading and prediction. The
+launcher also keeps TLS verification enabled while selecting the operating
+system CA bundle when embedded Python points at a missing `/usr/local/ssl`
+trust store.
+
+## Default Wazuh Rule Policy
+
+With no conflicts, the complete installer allocates:
+
+| Purpose | Rule ID | Staging level | Production level |
+| --- | ---: | ---: | ---: |
+| Edge URL observed | `100300` | 5 | 5 |
+| Classification parent | `100301` | 0 | 0 |
+| Confirmed selected-provider match | `100302` | 10 | 10 |
+| ML-suspicious result | `100303` | 9 | 9 |
+| Classifier/provider error | `100304` | 5 | 5 |
+| Negative or unlikely result | `100305` | 3 | 0 |
+
+If those IDs are already active, the configurator selects the first free
+contiguous range in Wazuh’s custom interval. Explicit collisions are rejected.
+
+Use the integrated wizard when IDs, levels, or groups must be chosen manually:
+
+```bash
+sudo bash ./wazuh-server/install-wazuh-server.sh \
+  --environment staging \
+  --reputation-provider google-webrisk \
+  --web-risk-key-prompt \
+  --wizard \
+  -v
+```
+
+Non-interactive policy options include:
+
+```text
+--group-name NAME
+--preferred-start ID
+--navigation-rule-id ID          --navigation-level LEVEL
+--classification-base-rule-id ID --classification-base-level LEVEL
+--reputation-rule-id ID          --reputation-level LEVEL
+--ml-rule-id ID                  --ml-level LEVEL
+--error-rule-id ID               --error-level LEVEL
+--negative-rule-id ID            --negative-level LEVEL
+```
+
+The older `--phishtank-rule-id` and `--phishtank-level` spellings remain as
+manifest-compatibility aliases. Use the provider-neutral names for new
+deployments.
+
+Preview a rule policy without changing Wazuh:
+
+```bash
+python3 ./wazuh-server/configure-rules.py \
+  --reputation-provider google-webrisk \
+  --output /tmp/edge-phishing-policy.xml
+```
+
+## Verification
+
+Installed-system checks are under `wazuh-server/verification`; development unit
+tests are separate under `wazuh-server/tests`.
+
+### 1. Safe live Google Web Risk check
+
+This explicit command can consume one API call. It sends the URL string only to
+Google and does not open or download the target:
+
+```bash
+sudo python3 ./wazuh-server/verification/verify-web-risk-integration.py \
+  --url 'http://testsafebrowsing.appspot.com/s/phishing.html' \
+  --wait 60
+```
+
+A confirmed test match should reach the configured level-10 reputation rule
+with `classification.source: google_webrisk`. A repeated lookup before its
+expiry should report `cache_hit: true` without increasing the monthly counter.
+
+Never open a real phishing URL in Edge to test this system.
+
+### 2. PhishTank live check
+
+Run this only when PhishTank is the selected provider and with an
+administrator-approved URL:
+
+```bash
+sudo python3 ./wazuh-server/verification/verify-phishtank-integration.py \
+  --url 'https://approved-test.example/path' \
+  --wait 60
+```
+
+Each live verifier refuses to run when its provider is not selected.
+
+### 3. Offline ML check
+
+This forces a local reputation no-match and makes no request to the provider or
+target URL:
+
+```bash
+sudo python3 ./wazuh-server/verification/verify-ml-integration.py \
+  --url 'https://controlled-test.example/login' \
+  -v
+```
+
+After observing the installed model’s result, add `--expect suspicious` or
+`--expect unlikely` for repeatable acceptance.
+
+### 4. Real harmless Edge event
+
+Copy a fresh `event_id` from the Windows JSONL log, then verify transport:
+
+```bash
+sudo bash ./wazuh-server/verification/verify-navigation-ingestion.sh \
+  --event-id 'PASTE_EVENT_ID' \
+  --wait 60
+```
+
+Verify classification for the same event:
+
+```bash
+sudo bash ./wazuh-server/verification/verify-classification-event.sh \
+  --source-event-id 'PASTE_EVENT_ID' \
+  --wait 60
+```
+
+The result must retain the Windows agent identity and source event ID. A
+provider no-match means only “not found”; it is not proof that a URL is safe.
+
+## Production Promotion
+
+After staging acceptance and observation, preserve the selected provider and
+change the manager profile:
+
+```bash
+sudo bash ./wazuh-server/install-wazuh-server.sh \
+  --environment production \
+  --reputation-provider google-webrisk \
+  -v
+```
+
+For PhishTank, select `--reputation-provider phishtank`. An installed Web Risk
+key is retained when no key prompt/file option is supplied. Production changes
+only routine negative/unknown visibility to level 0; confirmed reputation,
+ML-suspicious, and error levels remain active.
+
+The deployment profile and selected provider are recorded in:
+
+```text
+/var/ossec/etc/edge-phishing-deployment.json
+```
+
+## Runtime Files and Operations
+
+Primary installed paths are:
+
+```text
+/var/ossec/etc/edge-phishing-classifier.json
+/var/ossec/etc/edge-phishing-rule-policy.json
+/var/ossec/etc/edge-phishing-deployment.json
+/var/ossec/etc/rules/edge_phishing_pipeline_rules.xml
+/var/ossec/integrations/custom-edge-phishing-classifier
+/var/ossec/var/edge-phishing-classifier/cache.sqlite3
+```
+
+Web Risk request counts and circuit state can be inspected without exposing the
+key:
+
+```bash
+sudo sqlite3 /var/ossec/var/edge-phishing-classifier/cache.sqlite3 \
+  'SELECT * FROM reputation_usage; SELECT * FROM reputation_state;'
+```
+
+Integration diagnostics are written to:
+
+```text
+/var/ossec/logs/integrations.log
+```
+
+Provider failures never become `not_found`. If ML is enabled, a provider outage
+can produce a degraded ML result; otherwise it produces the configured level-5
+error. Google Web Risk uses bounded retries and a temporary circuit breaker.
+
+## Offline Evaluation and Optional Models
+
+Evaluate a local CSV, JSON, JSONL, or text list without contacting reputation
+providers or candidate hosts:
+
+```bash
+sudo python3 ./wazuh-server/tools/evaluate-ml-list.py \
+  --input /path/to/operator-reviewed-urls.csv \
+  --output /tmp/ml-results.jsonl \
+  --limit 500 \
+  -v
+```
+
+Structured inputs with a `verified` field accept explicit unverified values by
+default; verified rows are skipped unless `--include-verified` is supplied.
+Output is mode `0600`. The suspicious fraction is a model baseline, not recall
+or accuracy unless the input is a properly labeled evaluation dataset.
+
+An optional calibrated URL-only model interface remains available through
+`phase4/train_url_model.py` and `install-ml-model.py`. The repository does not
+ship a replacement training dataset. Training/retraining is outside the
+required deployment path; only trusted, reviewed joblib artifacts should be
+loaded.
+
+## Privacy and Limitations
+
+- The extension and native host remove fragments and embedded credentials and
+  redact common sensitive query values and search terms.
+- Rule descriptions use `url_host`, but the normalized complete URL remains in
+  structured Wazuh data because classification requires it.
+- Endpoint JSONL rotates at 10 MiB and retains three rotated files. Wazuh index
+  and archive retention must be configured separately.
+- Google Web Risk and PhishTank have quotas, outages, authentication failures,
+  and coverage gaps.
+- The original SVR score is uncalibrated and must not be presented as a phishing
+  percentage. Its quality limitations cannot be corrected without retraining.
+- This pipeline detects and alerts after committed navigation; it does not block
+  or close browser pages.
+
+Production key ownership, quota/budget controls, privacy review, and rollout
+guidance are covered in the
+[Google Web Risk preparation guide](../docs/google-web-risk-preparation-guide.md)
+and [integration plan](../docs/google-web-risk-integration-plan.md).
+
+## Historical Component Scripts
+
+These scripts are retained for migration, troubleshooting, and reproducing the
+development phases:
+
+```text
+install-phase3.sh
+uninstall-phase3.sh
+install-phase4.sh
+configure-rules.py
+install-ml-model.py
+```
+
+They should not be layered manually on a new staging or production deployment.
+Use `install-wazuh-server.sh`, which coordinates their responsibilities,
+provider exclusivity, complete backup, validation, and rollback.
+
+Development tests:
+
+```bash
+python3 -m unittest discover -s wazuh-server/tests/unit -p 'test_*.py'
+```
+
+See [development tests](tests/README.md), [offline tools](tools/README.md), and
+[installed verification](verification/README.md) for their narrower scopes.
