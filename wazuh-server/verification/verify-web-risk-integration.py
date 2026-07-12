@@ -22,6 +22,31 @@ def arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def find_classification_event(alerts_path: Path, source_event_id: str) -> dict | None:
+    """Return a complete matching JSONL record, tolerating an active append."""
+    try:
+        with alerts_path.open("r", encoding="utf-8", errors="replace") as alerts:
+            for line in alerts:
+                if source_event_id not in line or "edge-phishing-classifier" not in line:
+                    continue
+                # Wazuh may still be appending the final JSONL record. Reopening
+                # the file on the next poll will see it after the newline lands.
+                if not line.endswith("\n"):
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    # A malformed unrelated/partially flushed record must not
+                    # terminate verification of this unique source event.
+                    continue
+                if isinstance(event, dict):
+                    return event
+    except OSError:
+        # The alert file can be created or rotated between exists/open checks.
+        return None
+    return None
+
+
 def main() -> int:
     args = arguments()
     parsed = urllib.parse.urlsplit(args.url)
@@ -62,30 +87,26 @@ def main() -> int:
     deadline = time.monotonic() + args.wait
     alerts_path = home / "logs" / "alerts" / "alerts.json"
     while True:
-        if alerts_path.exists():
-            with alerts_path.open("r", encoding="utf-8", errors="replace") as alerts:
-                for line in alerts:
-                    if source_event_id not in line or "edge-phishing-classifier" not in line:
-                        continue
-                    event = json.loads(line)
-                    classification = event.get("data", {}).get("classification", {})
-                    print(json.dumps({"rule": event.get("rule"), "data": event.get("data")}, indent=2))
-                    cache_path = home / "var" / "edge-phishing-classifier" / "cache.sqlite3"
-                    try:
-                        with sqlite3.connect(cache_path) as database:
-                            row = database.execute(
-                                "SELECT request_count FROM reputation_usage "
-                                "WHERE provider='google_webrisk' AND calendar_month=strftime('%Y-%m','now')"
-                            ).fetchone()
-                        print(f"Recorded Web Risk requests this UTC month: {0 if row is None else row[0]}")
-                    except (OSError, sqlite3.Error):
-                        print("Web Risk request counter was unavailable.")
-                    if classification.get("status") == "error":
-                        return 1
-                    if classification.get("source") == "google_webrisk":
-                        return 0
-                    # A clean no-match may legitimately advance to ML.
-                    return 0 if classification.get("reputation_provider", "google_webrisk") == "google_webrisk" else 1
+        event = find_classification_event(alerts_path, source_event_id)
+        if event is not None:
+            classification = event.get("data", {}).get("classification", {})
+            print(json.dumps({"rule": event.get("rule"), "data": event.get("data")}, indent=2))
+            cache_path = home / "var" / "edge-phishing-classifier" / "cache.sqlite3"
+            try:
+                with sqlite3.connect(cache_path) as database:
+                    row = database.execute(
+                        "SELECT request_count FROM reputation_usage "
+                        "WHERE provider='google_webrisk' AND calendar_month=strftime('%Y-%m','now')"
+                    ).fetchone()
+                print(f"Recorded Web Risk requests this UTC month: {0 if row is None else row[0]}")
+            except (OSError, sqlite3.Error):
+                print("Web Risk request counter was unavailable.")
+            if classification.get("status") == "error":
+                return 1
+            if classification.get("source") == "google_webrisk":
+                return 0
+            # A clean no-match may legitimately advance to ML.
+            return 0 if classification.get("reputation_provider", "google_webrisk") == "google_webrisk" else 1
         if time.monotonic() >= deadline:
             print("No classification result appeared before the timeout.")
             return 1
