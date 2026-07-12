@@ -111,6 +111,14 @@ removal of Web Risk integration/rules first, then restore or install PhishTank.
 
 ## Google Cloud Prerequisites
 
+For a small experiment, use the console-only
+[Google Web Risk demo setup](google-web-risk-demo-setup.md). It covers only the
+project, billing, API enablement, restricted key, and optional one-call test.
+
+Use the step-by-step [Google Web Risk preparation guide](google-web-risk-preparation-guide.md)
+to create the staging project, enable billing/API access, restrict and test the
+key, establish cost controls, and prepare the Wazuh manager.
+
 An administrator must complete these steps outside the Wazuh installer:
 
 1. Create or select a dedicated Google Cloud project.
