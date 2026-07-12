@@ -7,6 +7,24 @@ ML_PYTHON="$WAZUH_HOME/var/edge-phishing-classifier/venv/bin/python3"
 WAZUH_PYTHON="$WAZUH_HOME/framework/python/bin/python3"
 PYTHON_SCRIPT="$INTEGRATIONS_DIR/custom-edge-phishing-classifier.py"
 
+# Wazuh's embedded Python may be linked against OpenSSL defaults under
+# /usr/local/ssl instead of the operating system trust store. Keep certificate
+# verification enabled and select a readable system CA bundle when the
+# administrator has not explicitly configured one.
+if [ -z "${SSL_CERT_FILE:-}" ]; then
+  for ca_bundle in \
+    /etc/ssl/certs/ca-certificates.crt \
+    /etc/pki/tls/certs/ca-bundle.crt \
+    /etc/ssl/cert.pem
+  do
+    if [ -r "$ca_bundle" ]; then
+      SSL_CERT_FILE="$ca_bundle"
+      export SSL_CERT_FILE
+      break
+    fi
+  done
+fi
+
 if [ -x "$ML_PYTHON" ]; then
   exec "$ML_PYTHON" "$PYTHON_SCRIPT" "$@"
 fi

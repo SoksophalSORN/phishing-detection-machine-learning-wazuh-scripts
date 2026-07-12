@@ -122,6 +122,13 @@ the target. An empty result means `not_found`, never “safe,” and proceeds to
 configured ML fallback. See the
 [Google Web Risk integration plan](../docs/google-web-risk-integration-plan.md).
 
+The integration launcher keeps TLS verification enabled and automatically
+selects the operating system CA bundle when Wazuh's embedded Python points at a
+missing `/usr/local/ssl` trust store. An explicitly configured `SSL_CERT_FILE`
+is preserved. Web Risk `expireTime` values are parsed as RFC 3339 with up to
+nanosecond precision for compatibility with Google protobuf timestamps and the
+Wazuh Python 3.10 runtime.
+
 This script installs only the Ubuntu Wazuh-manager side. The Edge extension,
 Windows native host, and Windows Wazuh-agent `localfile` configuration must
 already be deployed using their respective instructions.

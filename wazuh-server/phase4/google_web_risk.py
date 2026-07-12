@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 import time
 import urllib.error
@@ -16,6 +17,11 @@ from typing import Any, Callable
 
 WEB_RISK_ENDPOINT = "https://webrisk.googleapis.com/v1/uris:search"
 ALLOWED_THREAT_TYPES = {"SOCIAL_ENGINEERING", "MALWARE", "UNWANTED_SOFTWARE"}
+RFC3339_TIMESTAMP = re.compile(
+    r"^(?P<date>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})"
+    r"(?:\.(?P<fraction>\d{1,9}))?"
+    r"(?P<timezone>Z|[+-]\d{2}:\d{2})$"
+)
 
 
 class WebRiskError(Exception):
@@ -80,8 +86,18 @@ def read_api_key(path_value: str, *, required_owner: int | None = 0) -> str:
 def parse_expire_time(value: Any, *, now: float | None = None) -> int:
     if not isinstance(value, str) or not value:
         raise WebRiskError("Google Web Risk match has no expireTime")
+    match = RFC3339_TIMESTAMP.fullmatch(value)
+    if match is None:
+        raise WebRiskError("Google Web Risk match has an invalid expireTime")
+    # Google protobuf timestamps may contain nanoseconds, while Python 3.10's
+    # datetime parser supports microseconds. Expiry is stored as whole seconds,
+    # so truncating digits beyond six preserves the effective cache boundary.
+    fraction = match.group("fraction")
+    normalized_fraction = "" if fraction is None else "." + (fraction + "000000")[:6]
+    timezone_value = "+00:00" if match.group("timezone") == "Z" else match.group("timezone")
+    normalized = match.group("date") + normalized_fraction + timezone_value
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(normalized)
     except ValueError as exc:
         raise WebRiskError("Google Web Risk match has an invalid expireTime") from exc
     if parsed.tzinfo is None:

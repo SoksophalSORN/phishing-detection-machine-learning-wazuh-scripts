@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "phase4"))
 from google_web_risk import (
     WebRiskError,
     normalize_response,
+    parse_expire_time,
     query_url,
     read_api_key,
     validate_endpoint,
@@ -69,6 +70,16 @@ class GoogleWebRiskTests(unittest.TestCase):
         self.assertEqual(result["status"], "malicious")
         self.assertEqual(result["provider"], "google_webrisk")
         self.assertGreater(result["expire_at"], 0)
+
+    def test_expire_time_accepts_google_nanosecond_precision(self):
+        timestamp = parse_expire_time(
+            "2030-01-01T00:00:00.123456789Z", now=1_700_000_000
+        )
+        self.assertEqual(timestamp, 1_893_456_000)
+
+    def test_expire_time_rejects_non_rfc3339_value(self):
+        with self.assertRaises(WebRiskError):
+            parse_expire_time("2030-01-01 00:00:00", now=1_700_000_000)
 
     def test_key_permissions_reject_other_access(self):
         with tempfile.TemporaryDirectory() as directory:
